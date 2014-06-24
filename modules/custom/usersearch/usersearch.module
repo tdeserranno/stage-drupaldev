@@ -1,0 +1,503 @@
+<?php
+
+/**
+ * @file
+ * A module that allows searching and exporting of the users of a drupal site.
+ * 
+ * This module displays a search form to search the users of a site based on
+ * their username and/or email address.
+ * This module also provides exports into JSON or CSV of all users of a drupal site.
+ * Current values being exported are name, mail, timezone, language.
+ * 
+ * Changes:
+ * 20/6/2014: JSON export now exports user data to json file and copies user 
+ * pictures to public://export/usersearch folder on server.
+ * 
+ */
+
+/**
+ * Implements hook_help().
+ */
+function usersearch_help($path, $args) {
+  if ($path == 'admin/help#usersearch') {
+    return '<p>' . t('A module that allows searching and exporting of the users of a site.') . '<p>';
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function usersearch_menu() {
+  $items['usersearch/search'] = array(
+    'title' => 'Search users',
+    'description' => 'Search site users',
+    'page callback' => '_usersearch_search_page',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['usersearch/export'] = array(
+    'title' => 'Export users',
+    'description' => 'Export site users',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('usersearch_export_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['usersearch/export/json'] = array(
+    'title' => 'Export users to JSON',
+    'description' => 'Export site users to JSON file.',
+    'page callback' => '_export_json_unmanaged',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['usersearch/export/csv'] = array(
+    'title' => 'Export users to CSV',
+    'description' => 'Export site users to CSV file.',
+    'page callback' => '_export_csv_download',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Page callback: page that shows list of users
+ */
+function _usersearch_search_page() {
+  // Get and sanitize querystring parameters.
+  $query_parameters = drupal_get_query_parameters();
+  if (isset($query_parameters['username'])) {
+    $query_parameters['username'] = check_plain($query_parameters['username']);
+  }
+  if (isset($query_parameters['mail'])) {
+    $query_parameters['mail'] = check_plain($query_parameters['mail']);
+  }
+
+  // Get users.
+  $users = _get_users_search($query_parameters);
+
+  // Build render array: search form.
+  $page_array['form'] = drupal_get_form('usersearch_search_form');
+
+  // Build render array: show all link.
+  $page_array['showall_link'] = array(
+    '#markup' => l(t('Show all users'), 'usersearch/search'),
+  );
+
+  // Prepare table header.
+  $header = array(
+    t('username'),
+    t('status'),
+    t('roles'),
+    t('member for'),
+    t('last access'),
+    t('operations'),
+  );
+
+  // Prepare table rows.
+  $rows = array();
+
+  foreach ($users as $user) {
+    // Build a list of roles per user.
+    $roles = '<ul>';
+    foreach ($user->roles as $role) {
+      // Filter out the authenticated user role
+      if ($role != 'authenticated user') {
+        $roles .= '<li>' . $role . '</li>';
+      }
+    }
+    $roles .= '</ul>';
+
+    // Calculate time intervals for 'time ago' format.
+    $granularity = 2;
+    $now = time();
+    $created_interval = $now - (integer) $user->created;
+    $access_interval = $now - (integer) $user->access;
+
+    // Build table rows.
+    $rows[] = array(
+      l($user->name, 'user/' . $user->uid),
+      ($user->status == TRUE) ? t('active') : t('blocked'),
+      $roles,
+      format_interval($created_interval, $granularity),
+      ($user->access != 0) ? format_interval($access_interval, $granularity) : t('Never'),
+      l(t('Edit'), 'user/' . $user->uid . '/edit'),
+    );
+  }
+
+  // Build render array: table.
+  $page_array['table'] = array(
+    '#type' => 'block',
+    '#theme' => 'table',
+    '#header' => $header,
+    '#rows' => $rows,
+    '#empty' => t('No matching results.'),
+  );
+  // Build render array: add table pager.
+  $page_array['pager'] = array(
+    '#theme' => 'pager',
+  );
+
+  return $page_array;
+}
+
+/**
+ * Custom function: retrieves users from database for search results.
+ * Note: extending db_select with PagerDefault, necessary for using the pager.
+ */
+function _get_users_search($search_args = array()) {
+
+  // Getting user data using user_load_multiple.
+  // Note: chained limit() onto the extender to set number of items per page for
+  // the pager.
+  $uid_query = db_select('users', 'u')->extend('PagerDefault')->limit(10)
+      ->fields('u', array('uid', 'name', 'mail'));
+  // Exclude uid 0, the anonymous user
+  $uid_query->condition('uid', 0, '!=');
+  // Add condition for username if argument was given.
+  if (isset($search_args['username']) && $search_args['username'] !== '') {
+    $search_args['username'] = '%' . $search_args['username'] . '%';
+    $uid_query->condition('name', $search_args['username'], 'LIKE');
+  }
+  // Add condition for mail if argument was given.
+  if (isset($search_args['mail']) && $search_args['mail'] !== '') {
+    $search_args['mail'] = '%' . $search_args['mail'] . '%';
+    $uid_query->condition('mail', $search_args['mail'], 'LIKE');
+  }
+  $uid_query->orderBy('uid', 'ASC');
+  // Retrieve only the uids to use with user_load_multiple() to load the users.
+  $uids = $uid_query->execute()->fetchCol(0);
+  $users = user_load_multiple($uids);
+
+  return $users;
+}
+
+/**
+ * Implements hook_form().
+ * Form builder : form for searching the users by username and/or email.
+ */
+function usersearch_search_form($form, &$form_state) {
+  $form['usersearch'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Search users'),
+//    '#attributes' => array('class' => array('container-inline')),
+  );
+  $form['usersearch']['username'] = array(
+    '#type' => 'textfield',
+    '#title' => t('by username'),
+    '#size' => 30,
+    '#maxlength' => 30,
+  );
+  $form['usersearch']['mail'] = array(
+    '#type' => 'textfield',
+    '#title' => t('by e-mail'),
+    '#size' => 30,
+    '#maxlength' => 30,
+  );
+  $form['usersearch']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Search'),
+  );
+
+  return $form;
+}
+
+/**
+ * Usersearch search form submission handler.
+ */
+function usersearch_search_form_submit($form, &$form_state) {
+  $path = 'usersearch/search';
+  $options = array(
+    'query' => array(
+      'username' => check_plain($form_state['values']['username']),
+      'mail' => check_plain($form_state['values']['mail']),
+    ),
+  );
+  drupal_goto($path, $options);
+}
+
+/**
+ * Usersearch search form validation.
+ */
+function usersearch_search_form_validate($form, &$form_state) {
+  // Collect values to be validated.
+  $search_value['username'] = $form_state['values']['username'];
+  $search_value['mail'] = $form_state['values']['mail'];
+
+  // Loop through each value and validate.
+  foreach ($search_value as $element => $value) {
+    if ($value !== '' && check_plain($value) === '') {
+      form_set_error($element, t('This search only accepts plain text'));
+    }
+  }
+}
+
+/**
+ * Custom function: Generate filename for export file.
+ */
+function _export_generate_filename($prefix, $extension) {
+  $filename = $prefix;
+  $filename .= '_' . format_date(time(), 'custom', 'd-m-Y');
+  $filename .= '.' . $extension;
+
+  return $filename;
+}
+
+/**
+ * Menu callback: Exports JSON file and images to folder on the server. Export 
+ * files are unmanaged.
+ */
+function _export_json_unmanaged() {
+  // Retrieve users to be exported.
+  $users = _get_users_export();
+
+  // Check if there is actual data.
+  if (empty($users)) {
+    // Inform user.
+    drupal_set_message(t('Nothing to export.'), 'error');
+    drupal_goto('usersearch/export');
+  }
+  // Build data array.
+  $data = array();
+  foreach ($users as $user) {
+    // Build JSON data array.
+    $data['json'][] = array(
+      'name' => $user->name,
+      'mail' => $user->mail,
+      'timezone' => $user->timezone,
+      'language' => $user->language,
+      'image_uri' => isset($user->picture->uri) ? $user->picture->uri : NULL ,
+    );
+
+    // Build pictures array.
+    $data['pictures'][] = $user->picture;
+  }
+
+  // Attempt export.
+  try {
+    // Create export directory.
+    $directory = 'public://export/usersearch';
+    if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $directory)));
+    }
+
+    // Create JSON file.
+    $file_data = drupal_json_encode($data['json']);
+    $filename = _export_generate_filename('users', 'json');
+    $destination = $directory . '/' . $filename;
+    $filename = file_unmanaged_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
+    if ($filename) {
+      $url = file_create_url($filename);
+      drupal_set_message(t('Saved file as %filename, accessible via !url.', array(
+        '%filename' => $filename,
+        '!url' => l(t('this URL'), $url),
+      )));
+    }
+    else {
+      throw new Exception(t('Failed to save the file.'));
+    }
+
+    // Create export pictures directory.
+    $pictures_directory = 'public://export/usersearch/pictures';
+    if (!file_prepare_directory($pictures_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $pictures_directory)));
+    }
+
+    // Copy user pictures.
+    foreach ($data['pictures'] as $picture) {
+      if (isset($picture->uri) && !empty($picture->uri)) {
+        if (!file_unmanaged_copy($picture->uri, $pictures_directory, FILE_EXISTS_REPLACE)) {
+          throw new Exception(t('Failed to copy %picture', array('%picture' => $picture->uri)));
+        }
+      }
+    }
+    drupal_set_message(t('Pictures copied to %directory', array('%directory' => $pictures_directory)));
+
+    // Redirect back to export form.
+    drupal_goto('usersearch/export');
+  }
+  catch (Exception $exc) {
+    drupal_set_message($exc->getMessage(), 'error');
+    drupal_goto('usersearch/export');
+  }
+}
+
+/**
+ * Menu callback: Exports JSON file and images to folder on the server. Export 
+ * files are managed.
+ */
+function _export_json_managed() {
+  // Retrieve users to be exported.
+  $users = _get_users_export();
+
+  // Check if there is actual data.
+  if (empty($users)) {
+    // Inform user.
+    drupal_set_message(t('Nothing to export.'), 'error');
+    drupal_goto('usersearch/export');
+  }
+  // Build data array.
+  $data = array();
+  foreach ($users as $user) {
+    // Build JSON data array.
+    $data['json'][] = array(
+      'name' => $user->name,
+      'mail' => $user->mail,
+      'timezone' => $user->timezone,
+      'language' => $user->language,
+      'image_uri' => isset($user->picture->uri) ? $user->picture->uri : NULL ,
+    );
+
+    // Build pictures array.
+    $data['pictures'][] = $user->picture;
+  }
+
+  // Attempt export.
+  try {
+    // Create export directory.
+    $directory = 'public://export/usersearch';
+    if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $directory)));
+    }
+
+    // Create JSON file.
+    $file_data = drupal_json_encode($data['json']);
+    $filename = _export_generate_filename('users', 'json');
+    $destination = $directory . '/' . $filename;
+    $file = file_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
+    if (!empty($file)) {
+      $url = file_create_url($file->uri);
+      drupal_set_message(t('Saved file as %filename, accessible via !url.', array(
+        '%filename' => $file->filename,
+        '!url' => l(t('this URL'), $url),
+      )));
+    }
+    else {
+      throw new Exception(t('Failed to save the file.'));
+    }
+
+    // Create export pictures directory.
+    $pictures_directory = 'public://export/usersearch/pictures';
+    if (!file_prepare_directory($pictures_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $pictures_directory)));
+    }
+
+    // Copy user pictures.
+    foreach ($data['pictures'] as $picture) {
+      if (isset($picture) && !empty($picture->uri)) {
+        if (!file_copy($picture, $pictures_directory, FILE_EXISTS_REPLACE)) {
+          throw new Exception(t('Failed to copy %picture', array('%picture' => $picture->uri)));
+        }
+      }
+    }
+    drupal_set_message(t('Pictures copied to %directory', array('%directory' => $pictures_directory)));
+
+    // Redirect back to export form.
+    drupal_goto('usersearch/export');
+  }
+  catch (Exception $exc) {
+    drupal_set_message($exc->getMessage(), 'error');
+    drupal_goto('usersearch/export');
+  }
+}
+
+/**
+ * Menu callback: Exports to CSV file.
+ */
+function _export_csv_download() {
+  // Retrieve users to be exported.
+  $users = _get_users_export();
+
+  // Check if there is actual data.
+  if (empty($users)) {
+    // Inform user.
+    drupal_set_message(t('Nothing to export.'), 'error');
+    drupal_goto('usersearch/export');
+  }
+  // Build data array.
+  $data = array();
+  foreach ($users as $user) {
+    $data[] = array(
+      'name' => $user->name,
+      'mail' => $user->mail,
+      'timezone' => $user->timezone,
+      'language' => $user->language,
+      'image_uri' => isset($user->picture->uri) ? $user->picture->uri : NULL,
+    );
+  }
+
+  // Build CSV header.
+  $header = array_keys($data[0]);
+  // Create filename.
+  $filename = _export_generate_filename('users', 'csv');
+  // Force browser file download.
+  drupal_add_http_header('content-disposition', 'attachment; filename=' . $filename);
+  // Set CSV content type.
+  drupal_add_http_header('content-type', 'text/csv; utf-8');
+  // Write to the outputstream.
+  $filehandler = fopen('php://output', 'w');
+  // Header row.
+  fputcsv($filehandler, $header);
+  // Data rows.
+  foreach ($data as $row) {
+    fputcsv($filehandler, $row);
+  }
+  // Close output stream.
+  fclose($filehandler);
+}
+
+/**
+ * Custom function: get all users for export.
+ */
+function _get_users_export() {
+  // Build database query.
+  $query = db_select('users', 'u')
+      ->fields('u', array('uid'));
+  // Exclude anonymous and superuser (uid 0 and 1).
+  $query->condition('uid', '1', '>');
+  $uids = $query->execute()->fetchCol();
+
+  // Load users.
+  if (empty($uids)) {
+    return;
+  }
+  $users = user_load_multiple($uids);
+
+  return $users;
+}
+
+/**
+ * Implements hook_form().
+ * Form builder: Form to select export type.
+ */
+function usersearch_export_form($form, &$form_state) {
+  $form['export'] = array(
+    '#type' => 'select',
+    '#title' => t('Select export type'),
+    '#options' => array(
+      'json' => t('JSON on server'),
+      'csv' => t('CSV file'),
+    ),
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Export'),
+  );
+
+  return $form;
+}
+
+/**
+ * Form submit handler: handle export form.
+ */
+function usersearch_export_form_submit($form, &$form_state) {
+  // Determine what function to call based on what was selected.
+  if ($form_state['values']['export'] == 'json') {
+    // $form_state['redirect'] = 'usersearch/export/json';
+    drupal_goto('usersearch/export/json');
+  }
+  elseif ($form_state['values']['export'] == 'csv') {
+    drupal_goto('usersearch/export/csv');
+  }
+}

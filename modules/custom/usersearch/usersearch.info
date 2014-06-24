@@ -1,0 +1,7 @@
+name = User Search
+description = A module that allows searching of the users of the site.
+core = 7.x
+version = 7.x-dev
+package = Stage modules
+;
+files[] = usersearch.module
