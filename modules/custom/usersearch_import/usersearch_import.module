@@ -1,0 +1,336 @@
+<?php
+
+/**
+ * @file
+ * Imports users exported by Usersearch module.
+ * 
+ * Provides a form to upload a zip file. Expected within the zip file is a JSON
+ * file containing the user data to be imported and a directory 'pictures' containing
+ * the profile pictures of the users.
+ */
+
+/**
+ * Implements hook_help().
+ */
+function usersearch_import_help($path, $args) {
+  if ($path === 'admin/help#usersearch_import') {
+    return '<p>' . t('Imports users exported by Usersearch module.') . '<p>';
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function usersearch_import_menu() {
+  $items['usersearch-import/import'] = array(
+    'title' => 'Import users',
+    'description' => 'Import site users',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('usersearch_import_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['usersearch-import/mailtest'] = array(
+    'title' => 'PHP Mail test',
+    'page callback' => '_import_mailtest',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_form().
+ * Form builder : usersearch_import form, select file for import.
+ */
+function usersearch_import_form($form, &$form_state) {
+  $form['import_file'] = array(
+    '#type' => 'file',
+    '#title' => t('Import file'),
+    '#description' => t('Select file to import'),
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Import'),
+  );
+
+  return $form;
+}
+
+/**
+ * Form validation : validate usersearch_import form.
+ * Handles file upload of the zip archive.
+ */
+function usersearch_import_form_validate($form, &$form_state) {
+  $uploaded_file = file_save_upload('import_file', array(
+    // Validation options.
+    'file_validate_extensions' => array('zip'),
+  ));
+
+  // If the file passed validation.
+  if ($uploaded_file) {
+    // Move the file into the site files folder.
+    if ($uploaded_file = file_move($uploaded_file, 'public://', FILE_EXISTS_REPLACE)) {
+      // Save the file for use in the submit handler.
+      $form_state['storage']['import_file'] = $uploaded_file;
+    }
+    else {
+      form_set_error('import_file', t('Failed to write the uploaded file into the site\'s files folder.'));
+    }
+  }
+  else {
+    form_set_error('import_file', t('No file was uploaded.'));
+  }
+}
+
+/**
+ * Form submit handler : handle usersearch_import form
+ */
+function usersearch_import_form_submit($form, &$form_state) {
+//  dpm($form_state['storage']['import_file']);
+  $uploaded_file = $form_state['storage']['import_file'];
+  unset($form_state['storage']['import_file']);
+
+  // Get Archiver for uploaded file.
+  $archive = archiver_get_archiver($uploaded_file->uri);
+  if ($archive == FALSE) {
+    drupal_set_message(t('Unable to extract %file. Invalid archive.', array('%file' => $uploaded_file->filename)), 'error');
+    return;
+  }
+
+  // Specify extract location.
+  $directory = str_replace('public://', '', $uploaded_file->uri);
+  $directory = str_replace('.zip', '', $directory);
+  $extract_location = 'public://import/' . $directory;
+//  dpm($extract_location);
+
+  // Check if extract folder exists, delete it.
+  if (file_prepare_directory($extract_location)) {
+    file_unmanaged_delete_recursive($extract_location);
+  }
+
+  // Extract archive to extract location.
+  $files = $archive->listContents();
+//  dpm($files);
+  $archive->extract($extract_location);
+
+  // Prepare data for import.
+  $new_accounts = _import_prepare($extract_location, $files);
+  
+  // Import users.
+  $import_counter = 0;
+  foreach ($new_accounts as $fieldset) {
+    // Check if username exists.
+    if (!_import_check_user($fieldset['name'])) {
+      // Save account.
+//      drupal_set_message(t('No user with username %username exists, ready for import.', array(
+//        '%username' => $account->name)));
+      if (user_save('',$fieldset)) {
+        // Notify user with new password.
+        _import_mail_notify_user($fieldset);
+        
+        // Increase counter.
+        $import_counter++;
+      }
+    } else {
+      drupal_set_message(t('A user with username %username already exists.', array('%username' => $fieldset['name'])), 'error');
+    }
+  }
+  
+  // Display import summary message.
+  if ($import_counter === 0) {
+    drupal_set_message(t('No user accounts imported.'));
+  } else {
+    drupal_set_message(t('Successfully imported %counter user accounts.', array('%counter' => $import_counter)));
+  }
+  
+  // Cleanup extracted files and archive?
+  // Delete extract folder.
+  if (file_prepare_directory($extract_location)) {
+    if (file_unmanaged_delete_recursive($extract_location)) {
+      drupal_set_message(t('Archive extract folder deleted successfully.'));
+    }
+  }
+  // Delete archive.
+  if (file_delete($uploaded_file)) {
+    drupal_set_message(t('Archive deleted successfully.'));
+  }
+
+  // Redirect to home?
+  $form_state['redirect'] = '';
+}
+
+/**
+ * Custom function : Prepare data for import.
+ */
+function _import_prepare($extract_location, $files) {
+  $data = array();
+
+  // Find JSON file.
+  $result = preg_grep('/\.json$/', $files);
+  if (!empty($result)) {
+    if (count($result) > 1) {
+      drupal_set_message('More than one JSON file found.', 'error');
+      return;
+    }
+  }
+  else {
+    drupal_set_message('No JSON file found.', 'error');
+  }
+  $result = array_values($result);
+  
+  // Read JSON file.
+  $json_uri = $extract_location. '/' . $result[0];
+  $json_data = file_get_contents($json_uri);
+  $json_data = drupal_json_decode($json_data);
+//  dpm($json_data);
+  foreach ($json_data as $row) {
+    // Prepare account object.
+    $fieldset = array();
+    $fieldset['name'] = $row['name'];
+    $fieldset['mail'] = $row['mail'];
+    $fieldset['init'] = $row['mail'];
+    $fieldset['timezone'] = $row['timezone'];
+    $fieldset['language'] = $row['language'];
+    $fieldset['pass'] = user_password();
+    $fieldset['status'] = 1;
+    $fieldset['roles'] = array(DRUPAL_AUTHENTICATED_RID => 'authenticated user');
+    if (!empty($row['image_uri'])) {
+//      $image_uri = str_replace('public://', $extract_location, $row['image_uri']);
+      $fieldset['picture'] = _import_profile_picture($row['image_uri'], $files, $extract_location);
+    }
+    // Add prepared account object to data array.
+    $data[] = $fieldset;
+  }
+//  dpm($data);
+  
+  return $data;
+}
+
+/**
+ * Custom function : Move user picture to correct folder and create managed file and return its fid.
+ */
+function _import_profile_picture($image_uri, $files, $extract_location) {
+  // Find correct file entry in $files array.
+  $needle = str_replace('public://', '', $image_uri);
+  $file_key = array_search($needle, $files);
+//  dpm($file_key);
+  
+  // Build extract_uri.
+  $extract_uri = $extract_location . '/' . $files[$file_key];
+//  dpm($extract_uri);
+  
+  // Check if destination directory.
+  // Strip streamwrapper from original image uri
+  $destination = str_replace('public://', '', $image_uri);
+  // Explode remaining path string.
+  $destination_array = explode('/', $destination);
+  // Drop last part of path string (= filename part)
+  unset($destination_array[count($destination_array) - 1]);
+  if (!empty($destination_array)) {
+    // Reassemble streamwrapper.
+    $destination = 'public://';
+    foreach ($destination_array as $folder) {
+      if ($destination !== 'public://') {
+        $destination .= '/';
+      }
+      $destination .= $folder;
+    }
+  } else {
+    $destination = 'public://';
+  }
+//  dpm($destination);
+  // Check if destination folder exists using reassembled streamwrapper.
+  file_prepare_directory($destination, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY);
+  
+  // Create managed file on correct location.
+  $file_data = file_get_contents($extract_uri);
+  // CHANGE BACK TO FILE_EXISTS_RENAME !!!!
+  $file = file_save_data($file_data, $image_uri, FILE_EXISTS_REPLACE);
+  
+  return $file->fid;
+}
+
+/**
+ * Custom function : Check if a user with given username already exists.
+ */
+function _import_check_user($username) {
+  // Create query.
+  $query = db_select('users', 'u')
+      ->fields('u', array('uid', 'name'))
+      ->condition('name', $username);
+  $result_count = $query->countQuery()->execute()->fetchField();
+  
+  if ($result_count > 0) {
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
+/**
+ * Custom function : PHP Mail test
+ */
+function _import_mailtest() {
+  // Dummy data.
+  $username = 'dummy_user';
+  $password = user_password();
+  $sitename = 'Multi.dev';
+  
+  // Build mail.
+  $to = 'someuser@drupal.dev.invalid';
+  $subject = 'Multi.dev - Mail test';
+  $message = '
+    <html>
+      <head>
+        <title>New password</title>
+      </head>
+      <body>
+        <h3>This is a test mail for Multi.dev import module</h3>
+        <p>Your account was imported into the ' . $sitename . ' site.</p>
+        <p>username: ' . $username . '</p>
+        <p>new password: ' . $password .'</p>
+      </body>
+    </html>
+    ';
+  // To send HTML mail, the Content-type header must be set
+  $headers  = 'MIME-Version: 1.0' . "\r\n";
+  $headers .= 'Content-type: text/html; charset=iso-8859-1' . "\r\n";
+
+  // Send mail.
+  mail($to, $subject, $message, $headers);
+  
+  // Redirect to homepage.
+  drupal_goto('<front>');
+}
+
+/**
+ * Custom function : PHP Mail test
+ */
+function _import_mail_notify_user($fieldset) {
+  $sitename = 'Multi.dev';
+  
+  // Build mail.
+  $to = $fieldset['mail'];
+  $subject = 'Multi.dev - Account imported';
+  $message = '
+    <html>
+      <head>
+        <title>Account imported</title>
+      </head>
+      <body>
+        <h3>This is a test mail for Multi.dev import module</h3>
+        <p>Your account was imported into the ' . $sitename . ' site.</p>
+        <p>username: ' . $fieldset['name'] . '</p>
+        <p>new password: ' . $fieldset['pass'] .'</p>
+      </body>
+    </html>
+    ';
+  // To send HTML mail, the Content-type header must be set
+  $headers  = 'MIME-Version: 1.0' . "\r\n";
+  $headers .= 'Content-type: text/html; charset=iso-8859-1' . "\r\n";
+
+  // Send mail.
+  mail($to, $subject, $message, $headers);
+}

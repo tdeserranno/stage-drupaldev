@@ -1,0 +1,7 @@
+name = Usersearch Import
+description = Import users exported by Usersearch module.
+core = 7.x
+version = 7.x-dev
+package = Stage modules
+;
+files[] = usersearch_import.module
