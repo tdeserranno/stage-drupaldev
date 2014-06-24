@@ -1,7 +1,8 @@
 Drupal version = 7.28
+****
 
-Summmary
-*************
+Summary
+****
 1. Search
     The module provides a page where you can search for users of a Drupal site by username and/or mail address.
 
