@@ -1,0 +1,54 @@
+<?php
+/**
+ * @file
+ * A module that allows exporting of content in JSON format.
+ * 
+ */
+
+/**
+ * Implements hook_help().
+ */
+function contentexport_help($path, $args) {
+  if ($path === 'admin/help#content_export') {
+    return '<p>'. t('A module that allows exporting of content in JSON format.') . '</p>';
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function contentexport_menu() {
+  $items['export/select'] = array(
+    'title' => 'Export content',
+    'description' => 'Export content',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('contentexport_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  
+  return $items;
+}
+
+/**
+ * Form builder : content_export select content type to export.
+ */
+function contentexport_form($form, &$form_state) {
+  $node_types = node_type_get_types();
+  $options = array();
+  foreach ($node_types as $node_type) {
+    $options[$node_type->type] = $node_type->name;
+  }
+  
+  $form['content_type'] = array(
+    '#title' => t('Select content type'),
+    '#type' => 'select',
+    '#options' => $options,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  
+  return $form;
+}
