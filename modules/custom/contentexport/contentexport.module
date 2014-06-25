@@ -64,12 +64,18 @@ function contentexport_form_submit($form, &$form_state) {
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
 //  dpm($nodes);
+  // Cycle through all nodes to load any extra data, in this case it's taxonomy terms.
+  // Note: loop values by reference so that it is possible to load the data into the same position of the array.
   foreach ($nodes as &$node) {
+    // Cycle through each node property.
     foreach ($node as $property_name => &$property) {
+      // Find the field properties.
       $fieldname_regex = '/^field_[a-z]*$/';
       if (preg_match($fieldname_regex, $property_name)) {
+        // Load the field info for the field.
         $field_info = field_info_field($property_name);
 //        dpm($field_info);
+        // If the field is a taxonomy term reference, load the term.
         if ($field_info['type'] === 'taxonomy_term_reference') {
           if (isset($property) && !empty($property)) {
             foreach ($property['und'] as &$term) {
