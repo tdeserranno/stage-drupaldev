@@ -12,3 +12,79 @@ function contentimport_help($path, $args) {
     return '<p>' . t('A module that allows importing of content in JSON format.') . '</p>';
   }
 }
+
+/**
+ * Implements hook_menu().
+ */
+function contentimport_menu() {
+  $items['import/locate-files'] = array(
+    'title' => 'Import content',
+    'description' => 'Specify the location of the import files.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('contentimport_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  
+  return $items;
+}
+
+/**
+ * Form builder : contentimport specify files location form.
+ */
+function contentimport_form($form, &$form_state) {
+  $form['files_location'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Import files location'),
+    '#size' => 80,
+    '#maxlength' => 120,
+    '#attributes' => array(
+      'placeholder' => 'public://import/<folder name>',
+    ),
+    '#required' => TRUE,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  
+  return $form;
+}
+
+/**
+ * Form submit handler : contentimport form.
+ */
+function contentimport_form_submit($form, &$form_state) {
+  $files_location = $form_state['values']['files_location'];
+  // Trim trailing slash.
+  $files_location = rtrim($files_location, '/');
+  
+  // Check if files location exists.
+  if (!file_prepare_directory($files_location)) {
+    drupal_set_message(t('The directory %directory does not exist.', array('%directory' => $files_location)), 'error');
+  } else {
+    _contentimport_import($files_location);
+  }
+  
+  // Redirect to export form.
+  $form_state['redirect'] = 'import/locate-files';
+}
+
+/**
+ * Custom function : import data located at given location.
+ */
+function _contentimport_import($files_location) {
+  // Check for JSON file.
+//  $result = preg_grep('/\.json$/', $files);
+//  if (!empty($result)) {
+//    if (count($result) > 1) {
+//      drupal_set_message('More than one JSON file found.', 'error');
+//      return;
+//    }
+//  }
+//  else {
+//    drupal_set_message('No JSON file found.', 'error');
+//  }
+//  $result = array_values($result);
+  
+}
