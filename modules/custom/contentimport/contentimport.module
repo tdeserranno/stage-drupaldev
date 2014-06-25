@@ -75,16 +75,30 @@ function contentimport_form_submit($form, &$form_state) {
  */
 function _contentimport_import($files_location) {
   // Check for JSON file.
-//  $result = preg_grep('/\.json$/', $files);
-//  if (!empty($result)) {
-//    if (count($result) > 1) {
-//      drupal_set_message('More than one JSON file found.', 'error');
-//      return;
-//    }
-//  }
-//  else {
-//    drupal_set_message('No JSON file found.', 'error');
-//  }
+  $regex = '/\.json$/';
+  $options = array('recurse' => TRUE);
+  $json_files = file_scan_directory($files_location, $regex, $options);
+//  dpm($json_file);
+  if (!empty($json_files)) {
+    if (count($json_files) > 1) {
+      drupal_set_message('More than one JSON file found.', 'error');
+      return;
+    }
+  }
+  else {
+    drupal_set_message('No JSON file found.', 'error');
+    return;
+  }
 //  $result = array_values($result);
+//  dpm($json_files);
+  
+  // Check for image folder.
+  $images_location = $files_location . '/image';
+  if (!file_prepare_directory($files_location)) {
+    drupal_set_message(t('The directory %directory does not exist.', array('%directory' => $images_location)), 'error');
+    return;
+  }
+  
+  
   
 }
