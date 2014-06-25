@@ -1,0 +1,14 @@
+<?php
+/**
+ * @file
+ * A module that allows importing of content in JSON format.
+ */
+
+/**
+ * Implements hook_help().
+ */
+function contentimport_help($path, $args) {
+  if ($path === 'admin/help#contentimport') {
+    return '<p>' . t('A module that allows importing of content in JSON format.') . '</p>';
+  }
+}

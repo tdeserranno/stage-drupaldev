@@ -1,0 +1,7 @@
+name = Content Import
+description = A module that allows importing of content in JSON format.
+core = 7.x
+version = 7.x-dev
+package = Stage modules
+;
+files[] = contentimport.module
