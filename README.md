@@ -1,9 +1,7 @@
 #Version information
--
 Drupal version = 7.28
 
 #Modules
--
 ####usersearch (working, export may need revision)
 ***
 1. Search: 
