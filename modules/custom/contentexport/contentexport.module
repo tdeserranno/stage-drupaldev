@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file
  * A module that allows exporting of content in JSON format.
@@ -10,7 +11,7 @@
  */
 function contentexport_help($path, $args) {
   if ($path === 'admin/help#content_export') {
-    return '<p>'. t('A module that allows exporting of content in JSON format.') . '</p>';
+    return '<p>' . t('A module that allows exporting of content in JSON format.') . '</p>';
   }
 }
 
@@ -26,7 +27,7 @@ function contentexport_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
-  
+
   return $items;
 }
 
@@ -39,7 +40,7 @@ function contentexport_form($form, &$form_state) {
   foreach ($node_types as $node_type) {
     $options[$node_type->type] = $node_type->name;
   }
-  
+
   $form['content_type'] = array(
     '#title' => t('Select content type'),
     '#type' => 'select',
@@ -49,6 +50,116 @@ function contentexport_form($form, &$form_state) {
     '#type' => 'submit',
     '#value' => t('Submit'),
   );
-  
+
   return $form;
+}
+
+/**
+ * Form submit handler : handle contentexport_form.
+ */
+function contentexport_form_submit($form, &$form_state) {
+  $page_array = array();
+
+  // Load nodes.
+  $node_type = $form_state['values']['content_type'];
+  $nodes = _contentexport_get_nodes($node_type);
+//  dpm($nodes);
+
+  // Export nodes.
+  _export_nodes_json_unmanaged($nodes);
+
+  return $page_array;
+}
+
+/**
+ * Custom function : get all nodes of selected type.
+ */
+function _contentexport_get_nodes($node_type) {
+  $query = db_select('node', 'n')
+      ->fields('n', array('nid', 'type'))
+      ->condition('type', $node_type);
+  $nids = $query->execute()->fetchCol();
+
+  $nodes = node_load_multiple($nids);
+
+  return $nodes;
+}
+
+/**
+ * Custom function : export given nodes to JSON format.
+ */
+function _export_nodes_json_unmanaged(array $nodes) {
+  // Check if there is actual data to export.
+  if (empty($nodes)) {
+    // Inform user.
+    drupal_set_message(t('Nothing to export.'), 'error');
+//    drupal_goto('<front>');
+    return;
+  }
+
+  // Build data array.
+  $file_data = drupal_json_encode($nodes);
+//  dpm($file_data);
+  // Attempt export.
+  try {
+    $node_keys = array_keys($nodes);
+    $first_node = $nodes[$node_keys[0]];
+    
+    // Create export directory.
+    $directory = 'public://export/' . $first_node->type;
+    if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $directory)));
+    }
+
+    // Create JSON file.
+    $filename = _export_generate_filename($first_node->type, 'json');
+    $destination = $directory . '/' . $filename;
+    $filename = file_unmanaged_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
+    if ($filename) {
+      $url = file_create_url($filename);
+      drupal_set_message(t('Saved file as %filename, accessible via !url.', array(
+        '%filename' => $filename,
+        '!url' => l(t('this URL'), $url),
+      )));
+    }
+    else {
+      throw new Exception(t('Failed to save the file.'));
+    }
+
+    // Create export image directory.
+    $images_directory = 'public://export/' . $first_node->type . '/image';
+    if (!file_prepare_directory($images_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $images_directory)));
+    }
+
+    // Copy node images.
+    foreach ($nodes as $node) {
+      if (isset($node->field_image['und'][0]['uri']) && !empty($node->field_image['und'][0]['uri'])) {
+        if (!file_unmanaged_copy($node->field_image['und'][0]['uri'], $images_directory, FILE_EXISTS_REPLACE)) {
+          throw new Exception(t('Failed to copy %picture', array('%picture' => $node->field_image['und'][0]['uri'])));
+        }
+      }
+    }
+    drupal_set_message(t('Node images copied to %directory', array('%directory' => $images_directory)));
+
+    // Redirect to front.
+    drupal_goto('<front>');
+  }
+  catch (Exception $exc) {
+    // Display error message.
+    drupal_set_message($exc->getMessage(), 'error');
+    // Redirect to front.
+    drupal_goto('<front>');
+  }
+}
+
+/**
+ * Custom function: Generate filename for export file.
+ */
+function _export_generate_filename($prefix, $extension) {
+  $filename = $prefix;
+  $filename .= '_' . format_date(time(), 'custom', 'd-m-Y');
+  $filename .= '.' . $extension;
+
+  return $filename;
 }
