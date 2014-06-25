@@ -63,32 +63,26 @@ function contentexport_form_submit($form, &$form_state) {
   // Load nodes.
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
+//  dpm($nodes);
   foreach ($nodes as &$node) {
-    foreach ($node as $property_name => $property) {
-      if ($property_name === 'field_tags') {
-        if (isset($node->field_tags) && !empty($node->field_tags)) {
-          foreach ($node->field_tags['und'] as &$tag) {
-            $tag = taxonomy_term_load($tag['tid']);
-          }
-        }
-      }
-      if ($property_name === 'field_timeframe') {
-        if (isset($node->field_timeframe) && !empty($node->field_timeframe)) {
-          foreach ($node->field_timeframe['und'] as &$timeframe) {
-            $timeframe = taxonomy_term_load($timeframe['tid']);
+    foreach ($node as $property_name => &$property) {
+      $fieldname_regex = '/^field_[a-z]*$/';
+      if (preg_match($fieldname_regex, $property_name)) {
+        $field_info = field_info_field($property_name);
+//        dpm($field_info);
+        if ($field_info['type'] === 'taxonomy_term_reference') {
+          if (isset($property) && !empty($property)) {
+            foreach ($property['und'] as &$term) {
+              $term = taxonomy_term_load($term['tid']);
+            }
           }
         }
       }
     }
   }
-  dpm($nodes);
-//  foreach ($nodes as $node) {
-//    foreach ($node as $property_name => $property) {
-//      dpm($property, $property_name);
-//    }
-//  }
+//  dpm($nodes);
   // Export nodes.
-//  _export_nodes_json_unmanaged($nodes);
+  _export_nodes_json_unmanaged($nodes);
 
   return $page_array;
 }
