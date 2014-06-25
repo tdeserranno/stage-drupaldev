@@ -63,10 +63,32 @@ function contentexport_form_submit($form, &$form_state) {
   // Load nodes.
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
-//  dpm($nodes);
-
+  foreach ($nodes as &$node) {
+    foreach ($node as $property_name => $property) {
+      if ($property_name === 'field_tags') {
+        if (isset($node->field_tags) && !empty($node->field_tags)) {
+          foreach ($node->field_tags['und'] as &$tag) {
+            $tag = taxonomy_term_load($tag['tid']);
+          }
+        }
+      }
+      if ($property_name === 'field_timeframe') {
+        if (isset($node->field_timeframe) && !empty($node->field_timeframe)) {
+          foreach ($node->field_timeframe['und'] as &$timeframe) {
+            $timeframe = taxonomy_term_load($timeframe['tid']);
+          }
+        }
+      }
+    }
+  }
+  dpm($nodes);
+//  foreach ($nodes as $node) {
+//    foreach ($node as $property_name => $property) {
+//      dpm($property, $property_name);
+//    }
+//  }
   // Export nodes.
-  _export_nodes_json_unmanaged($nodes);
+//  _export_nodes_json_unmanaged($nodes);
 
   return $page_array;
 }
@@ -104,7 +126,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
   try {
     $node_keys = array_keys($nodes);
     $first_node = $nodes[$node_keys[0]];
-    
+
     // Create export directory.
     $directory = 'public://export/' . $first_node->type;
     if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
