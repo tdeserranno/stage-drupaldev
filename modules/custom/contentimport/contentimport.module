@@ -104,6 +104,44 @@ function _contentimport_import($files_location) {
   $json_file = array_shift($json_files);
   $json_data = file_get_contents($json_file->uri);
   $json_data = drupal_json_decode($json_data);
-//  dpm($json_data);
+  dpm($json_data);
   
+  // Prepare import data
+  $new_nodes = _contentimport_prepare_data($json_data);
+  
+  // Save new nodes.
+  foreach ($new_nodes as $node) {
+    node_save($node);
+  }
+}
+
+/**
+ * Custom function : prepare json_data for import.
+ */
+function _contentimport_prepare_data(array $data) {
+  $import_nodes = array();
+  global $user;
+  
+  // Cylce through data array.
+  foreach ($data as $row) {
+    // Build new node.
+    $new_node = new stdClass();
+    $new_node->type = $row['type'];
+    node_object_prepare($new_node);
+    $new_node->language = LANGUAGE_NONE;
+    $new_node->title = $row['title'];
+    $new_node->status = (boolean) $row['status'];
+    $new_node->comment = (integer) $row['comment'];
+    $new_node->promote = (boolean) $row['promote'];
+    $new_node->sticky = (boolean) $row['sticky'];
+    $new_node->uid = $user->uid;
+    $new_node->body = $row['body'][$new_node->language][0]['value'];
+    $new_node->image = isset($row['field_image']['und'][0]['uri']) ? $row['field_image']['und'][0]['uri'] : '';
+    
+    // Submit node.
+    $import_nodes[] = node_submit($new_node);
+  }
+//  dpm($import_nodes);
+  
+  return $import_nodes;
 }
