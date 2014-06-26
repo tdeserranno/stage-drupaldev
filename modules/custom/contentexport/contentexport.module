@@ -156,9 +156,11 @@ function _export_nodes_json_unmanaged(array $nodes) {
 
     // Copy node images.
     foreach ($nodes as $node) {
-      if (isset($node->field_image['und'][0]['uri']) && !empty($node->field_image['und'][0]['uri'])) {
-        if (!file_unmanaged_copy($node->field_image['und'][0]['uri'], $images_directory, FILE_EXISTS_REPLACE)) {
-          throw new Exception(t('Failed to copy %picture', array('%picture' => $node->field_image['und'][0]['uri'])));
+      foreach ($node->field_image['und'] as $image) {
+        if (isset($image['uri']) && !empty($image['uri'])) {
+          if (!file_unmanaged_copy($image['uri'], $images_directory, FILE_EXISTS_REPLACE)) {
+            throw new Exception(t('Failed to copy %picture', array('%picture' => $image['uri'])));
+          }
         }
       }
     }
