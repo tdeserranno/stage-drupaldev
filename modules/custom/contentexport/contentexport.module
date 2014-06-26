@@ -64,7 +64,25 @@ function contentexport_form_submit($form, &$form_state) {
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
 //  dpm($nodes);
-  // Cycle through all nodes to load any extra data, in this case it's taxonomy terms.
+  
+  // Export nodes.
+  _export_nodes_json_unmanaged($nodes);
+
+  return $page_array;
+}
+
+/**
+ * Custom function : get all nodes of selected type.
+ */
+function _contentexport_get_nodes($node_type) {
+  $query = db_select('node', 'n')
+      ->fields('n', array('nid', 'type'))
+      ->condition('type', $node_type);
+  $nids = $query->execute()->fetchCol();
+
+  $nodes = node_load_multiple($nids);
+  
+  // Cycle through all nodes to load any extra data, in this case the taxonomy terms.
   // Note: loop values by reference so that it is possible to load the data into the same position of the array.
   foreach ($nodes as &$node) {
     // Cycle through each node property.
@@ -86,23 +104,6 @@ function contentexport_form_submit($form, &$form_state) {
       }
     }
   }
-//  dpm($nodes);
-  // Export nodes.
-  _export_nodes_json_unmanaged($nodes);
-
-  return $page_array;
-}
-
-/**
- * Custom function : get all nodes of selected type.
- */
-function _contentexport_get_nodes($node_type) {
-  $query = db_select('node', 'n')
-      ->fields('n', array('nid', 'type'))
-      ->condition('type', $node_type);
-  $nids = $query->execute()->fetchCol();
-
-  $nodes = node_load_multiple($nids);
 
   return $nodes;
 }
