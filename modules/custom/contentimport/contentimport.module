@@ -93,10 +93,11 @@ function _contentimport_import($files_location) {
 //  dpm($json_files);
   
   // Check for image folder.
-  $regex = '/image/';
   $images_location = $files_location . '/image';
   if (!file_prepare_directory($files_location)) {
     drupal_set_message(t('The directory %directory does not exist.', array('%directory' => $images_location)), 'error');
     return;
   }
+  
+  
 }
