@@ -77,7 +77,7 @@ function contentexport_form_submit($form, &$form_state) {
 //        dpm($field_info);
         // If the field is a taxonomy term reference, load the term.
         if ($field_info['type'] === 'taxonomy_term_reference') {
-          if (isset($property) && !empty($property)) {
+          if (isset($property['und']) && !empty($property['und'])) {
             foreach ($property['und'] as &$term) {
               $term = taxonomy_term_load($term['tid']);
             }
