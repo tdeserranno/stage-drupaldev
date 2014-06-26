@@ -64,7 +64,6 @@ function contentexport_form_submit($form, &$form_state) {
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
 //  dpm($nodes);
-  
   // Export nodes.
   _export_nodes_json_unmanaged($nodes);
 
@@ -81,7 +80,7 @@ function _contentexport_get_nodes($node_type) {
   $nids = $query->execute()->fetchCol();
 
   $nodes = node_load_multiple($nids);
-  
+
   // Cycle through all nodes to load any extra data, in this case the taxonomy terms.
   // Note: loop values by reference so that it is possible to load the data into the same position of the array.
   foreach ($nodes as &$node) {
@@ -124,6 +123,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
   $file_data = drupal_json_encode($nodes);
 //  dpm($file_data);
   // Attempt export.
+  $errors = array();
   try {
     $node_keys = array_keys($nodes);
     $first_node = $nodes[$node_keys[0]];
@@ -132,6 +132,12 @@ function _export_nodes_json_unmanaged(array $nodes) {
     $directory = 'public://export/' . $first_node->type;
     if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
       throw new Exception(t('Failed to create %directory.', array('%directory' => $directory)));
+    }
+    
+    // Create export image directory.
+    $images_directory = 'public://export/' . $first_node->type . '/image';
+    if (!file_prepare_directory($images_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $images_directory)));
     }
 
     // Create JSON file.
@@ -149,30 +155,51 @@ function _export_nodes_json_unmanaged(array $nodes) {
       throw new Exception(t('Failed to save the file.'));
     }
 
-    // Create export image directory.
-    $images_directory = 'public://export/' . $first_node->type . '/image';
-    if (!file_prepare_directory($images_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
-      throw new Exception(t('Failed to create %directory.', array('%directory' => $images_directory)));
-    }
-
     // Copy node images.
+    $image_counter = 0;
     foreach ($nodes as $node) {
-      foreach ($node->field_image['und'] as $image) {
-        if (isset($image['uri']) && !empty($image['uri'])) {
-          if (!file_unmanaged_copy($image['uri'], $images_directory, FILE_EXISTS_REPLACE)) {
-            throw new Exception(t('Failed to copy %picture', array('%picture' => $image['uri'])));
+      if (isset($node->field_image['und']) && !empty($node->field_image['und'])) {
+        foreach ($node->field_image['und'] as $image) {
+          if (isset($image['uri']) && !empty($image['uri'])) {
+            if (!file_unmanaged_copy($image['uri'], $images_directory, FILE_EXISTS_REPLACE)) {
+              $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
+            }
+            else {
+              $image_counter++;
+              // Test copy errors
+//              $errors[] = t('Copy error test %picture', array('%picture' => $image['uri']));
+            }
           }
         }
       }
     }
-    drupal_set_message(t('Node images copied to %directory', array('%directory' => $images_directory)));
+
+    // Notify user.
+    if (!empty($errors)) {
+      // Log errors.
+      if (_contentexport_log_errors($errors) === FALSE){
+        drupal_set_message(t('Error logging failed.'), 'error');
+      }
+    }
+    else {
+      if ($image_counter !== 0) {
+        drupal_set_message(t('%counter node images copied to %directory', array('%counter' => $image_counter, '%directory' => $images_directory)));
+      }
+      else {
+        drupal_set_message(t('No node images were copied.'));
+      }
+    }
 
     // Redirect to front.
     drupal_goto('<front>');
   }
   catch (Exception $exc) {
-    // Display error message.
-    drupal_set_message($exc->getMessage(), 'error');
+    // Add exception to errors.
+    $errors[] = $exc->getMessage();
+
+    // Log errors.
+    _contentexport_log_errors($errors, $exc);
+
     // Redirect to front.
     drupal_goto('<front>');
   }
@@ -187,4 +214,45 @@ function _export_generate_filename($prefix, $extension) {
   $filename .= '.' . $extension;
 
   return $filename;
+}
+
+/**
+ * Custom function : Log export errors.
+ */
+function _contentexport_log_errors(array $errors, $exception = NULL) {
+  // Create log directory.
+    $directory = 'public://export/log/';
+    if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      drupal_set_message(t('Failed to create %directory.', array('%directory' => $directory)), 'error');
+      return FALSE;
+    }
+  
+  // Create error log.
+    $file = $directory . 'errorlog.txt';
+    if (!empty($errors)) {
+      foreach ($errors as $error) {
+        // Build errorstring.
+        $errorstring = format_date(REQUEST_TIME, 'custom', 'd-m-Y H:i:s') . ' : ' . $error . PHP_EOL;
+        
+        // Write errorstring.
+        if (file_put_contents($file, $errorstring, FILE_APPEND | LOCK_EX) === FALSE) {
+          drupal_set_message(t('Failed to write %string to error logfile.', array('%string' => $errorstring)), 'error');
+          return FALSE;
+        }
+      }
+    }
+    
+  // Notify user about fatal error.
+  $url = file_create_url($file);
+  if ($exception !== NULL) {
+    drupal_set_message(t('A fatal error occurred during the export process. See the errorlog for details, accessible via !url.', array(
+        '!url' => l(t('this URL'), $url),
+      )), 'error');
+  }
+  // Notify user about file copy errors.
+  else {
+    drupal_set_message(t('Some files were not copied. See the errorlog for details, accessible via !url.', array(
+        '!url' => l(t('this URL'), $url),
+      )), 'warning');
+  }
 }
