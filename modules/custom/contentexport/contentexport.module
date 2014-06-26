@@ -63,7 +63,8 @@ function contentexport_form_submit($form, &$form_state) {
   // Load nodes.
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
-//  dpm($nodes);
+  dpm($nodes);
+  
   // Export nodes.
   _export_nodes_json_unmanaged($nodes);
 
@@ -135,7 +136,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
     }
     
     // Create export image directory.
-    $images_directory = 'public://export/' . $first_node->type . '/image';
+    $images_directory = 'public://export/' . _export_generate_filename($first_node->type) . '/image';
     if (!file_prepare_directory($images_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
       throw new Exception(t('Failed to create %directory.', array('%directory' => $images_directory)));
     }
