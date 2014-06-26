@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file
  * A module that allows importing of content in JSON format.
@@ -25,7 +26,7 @@ function contentimport_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
-  
+
   return $items;
 }
 
@@ -48,7 +49,7 @@ function contentimport_form($form, &$form_state) {
     '#type' => 'submit',
     '#value' => t('Submit'),
   );
-  
+
   return $form;
 }
 
@@ -59,14 +60,16 @@ function contentimport_form_submit($form, &$form_state) {
   $files_location = $form_state['values']['files_location'];
   // Trim trailing slash.
   $files_location = rtrim($files_location, '/');
-  
+
   // Check if files location exists.
-  if (!file_prepare_directory($files_location)) {
-    drupal_set_message(t('The directory %directory does not exist.', array('%directory' => $files_location)), 'error');
-  } else {
+  if (!is_dir($files_location)) {
+    drupal_set_message(
+        t('The specified location %location does not exist or is not a directory.', array('%location' => $files_location)), 'error');
+  }
+  else {
     _contentimport_import($files_location);
   }
-  
+
   // Redirect to export form.
   $form_state['redirect'] = 'import/locate-files';
 }
@@ -92,23 +95,23 @@ function _contentimport_import($files_location) {
   }
 //  $result = array_values($result);
 //  dpm($json_files);
-  
   // Check for image folder.
-  $images_location = $files_location . '/image';
-  if (!file_prepare_directory($files_location)) {
-    drupal_set_message(t('The directory %directory does not exist.', array('%directory' => $images_location)), 'error');
-    return;
+  $images_location = $files_location . '/image/';
+  if (!is_dir($images_location)) {
+    drupal_set_message(
+        t('No image directory found in %import_directory.', array('%import_directory' => $files_location)), 'error');
+//    return;
   }
-  
+
   // Load JSON data.
   $json_file = array_shift($json_files);
   $json_data = file_get_contents($json_file->uri);
   $json_data = drupal_json_decode($json_data);
   dpm($json_data);
-  
+
   // Prepare import data
   $new_nodes = _contentimport_prepare_data($json_data);
-  
+
   // Save new nodes.
   foreach ($new_nodes as $node) {
     node_save($node);
@@ -121,27 +124,47 @@ function _contentimport_import($files_location) {
 function _contentimport_prepare_data(array $data) {
   $import_nodes = array();
   global $user;
-  
+  // Get site's node types.
+  $node_types = node_type_get_types();
+
+
   // Cylce through data array.
   foreach ($data as $row) {
-    // Build new node.
-    $new_node = new stdClass();
-    $new_node->type = $row['type'];
-    node_object_prepare($new_node);
-    $new_node->language = LANGUAGE_NONE;
-    $new_node->title = $row['title'];
-    $new_node->status = (boolean) $row['status'];
-    $new_node->comment = (integer) $row['comment'];
-    $new_node->promote = (boolean) $row['promote'];
-    $new_node->sticky = (boolean) $row['sticky'];
-    $new_node->uid = $user->uid;
-    $new_node->body = $row['body'][$new_node->language][0]['value'];
-    $new_node->image = isset($row['field_image']['und'][0]['uri']) ? $row['field_image']['und'][0]['uri'] : '';
-    
-    // Submit node.
-    $import_nodes[] = node_submit($new_node);
+    // Check if node type to be imported exists on the site.
+    if (isset($node_types[$row['type']])) {
+      // Build new node.
+      $new_node = new stdClass();
+      $new_node->type = $row['type'];
+      node_object_prepare($new_node);
+      $new_node->language = LANGUAGE_NONE;
+      $new_node->title = $row['title'];
+      $new_node->status = (boolean) $row['status'];
+      $new_node->comment = (integer) $row['comment'];
+      $new_node->promote = (boolean) $row['promote'];
+      $new_node->sticky = (boolean) $row['sticky'];
+      $new_node->body = $row['body'];
+      $new_node->uid = $user->uid;
+
+      // Determine what field types are present.
+      $property_keys = array_keys($row);
+      $field_keys = preg_grep('/^field_[a-z]*$/', $property_keys);
+//    dpm($field_keys);
+//    
+      // Handle fields.
+      foreach ($field_keys as $field) {
+        if ($field === 'field_image') {
+//        $new_node->image = isset($row['field_image']['und'][0]['uri']) ? $row['field_image']['und'][0]['uri'] : '';
+        }
+      }
+
+      // Submit node.
+      $import_nodes[] = node_submit($new_node);
+    }
+    else {
+      drupal_set_message(t('Content type not available for import.'), 'error');
+    }
   }
-//  dpm($import_nodes);
-  
+  dpm($import_nodes);
+
   return $import_nodes;
 }
