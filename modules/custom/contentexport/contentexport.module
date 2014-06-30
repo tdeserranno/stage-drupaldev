@@ -7,6 +7,12 @@
  */
 
 /**
+ * Custom constants
+ */
+//Custom FILE_EXISTS, defined more for the ability to change possible multiple occurences from 1 location.
+define('CUSTOM_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
+
+/**
  * Implements hook_help().
  */
 function contentexport_help($path, $args) {
@@ -81,6 +87,7 @@ function _contentexport_get_nodes($node_type) {
   $nids = $query->execute()->fetchCol();
 
   $nodes = node_load_multiple($nids);
+  dpm($nodes);
 
   // Cycle through all nodes to load any extra data, in this case the taxonomy terms.
   // Note: loop values by reference so that it is possible to load the data into the same position of the array.
@@ -144,7 +151,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
     // Create JSON file.
     $filename = _export_generate_filename($first_node->type, 'json');
     $destination = $directory . '/' . $filename;
-    $filename = file_unmanaged_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
+    $filename = file_unmanaged_save_data($file_data, $destination, CUSTOM_FILE_SAVE_BEHAVIOR);
     if ($filename) {
       $url = file_create_url($filename);
       drupal_set_message(t('Saved file as %filename, accessible via !url.', array(
@@ -162,7 +169,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
       if (isset($node->field_image['und']) && !empty($node->field_image['und'])) {
         foreach ($node->field_image['und'] as $image) {
           if (isset($image['uri']) && !empty($image['uri'])) {
-            if (!file_unmanaged_copy($image['uri'], $images_directory, FILE_EXISTS_REPLACE)) {
+            if (!file_unmanaged_copy($image['uri'], $images_directory, CUSTOM_FILE_SAVE_BEHAVIOR)) {
               $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
             }
             else {

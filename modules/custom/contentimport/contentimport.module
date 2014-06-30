@@ -6,6 +6,12 @@
  */
 
 /**
+ * Custom constants
+ */
+//Custom FILE_EXISTS, defined more for the ability to change possible multiple occurences from 1 location.
+define('CUSTOM_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
+
+/**
  * Implements hook_help().
  */
 function contentimport_help($path, $args) {
@@ -114,66 +120,70 @@ function _contentimport_import($files_location) {
 
   // Save new nodes.
   foreach ($new_nodes as $node) {
-//    node_save($node);
+    node_save($node);
   }
 }
 
 /**
  * Custom function : prepare json_data for import.
  */
-function _contentimport_prepare_data(array $data, $images_location) {
+function _contentimport_prepare_data(array $import_data, $images_location) {
   $import_nodes = array();
   global $user;
   // Get site's node types.
   $node_types = node_type_get_types();
 
+  // Get site vocabularies.
+  $vocabularies = taxonomy_vocabulary_get_names();
+
   // Cylce through data array.
-  foreach ($data as $row) {
+  foreach ($import_data as $import_row) {
     // Check if node type to be imported exists on the site.
-    if (isset($node_types[$row['type']])) {
+    if (isset($node_types[$import_row['type']])) {
       // Build new node.
       $new_node = new stdClass();
-      $new_node->type = $row['type'];
+      $new_node->type = $import_row['type'];
       node_object_prepare($new_node);
       $new_node->language = LANGUAGE_NONE;
-      $new_node->title = $row['title'];
-      $new_node->status = (boolean) $row['status'];
-      $new_node->comment = (integer) $row['comment'];
-      $new_node->promote = (boolean) $row['promote'];
-      $new_node->sticky = (boolean) $row['sticky'];
-      $new_node->body = $row['body'];
+      $new_node->title = $import_row['title'];
+      $new_node->status = (boolean) $import_row['status'];
+      $new_node->comment = (integer) $import_row['comment'];
+      $new_node->promote = (boolean) $import_row['promote'];
+      $new_node->sticky = (boolean) $import_row['sticky'];
+      $new_node->body = $import_row['body'];
       $new_node->uid = $user->uid;
 
       // Determine what field types are present.
-      $property_keys = array_keys($row);
+      $property_keys = array_keys($import_row);
       $field_keys = preg_grep('/^field_[a-z]*$/', $property_keys);
 //    dpm($field_keys);
-    
       // Handle fields.
-      // Get site vocabularies.
-      $vocabularies = taxonomy_vocabulary_get_names();
-
       foreach ($field_keys as $field) {
         // Get field type.
         $field_info = field_info_field($field);
+        // Check if field exists.
         if ($field_info !== NULL) {
           switch ($field_info['type']) {
             case 'image':
-              $new_node->$field = _contentimport_prepare_images($row, $field, $new_node->language, $images_location);
+              if ($field === 'field_image') {
+                $new_node->field_image[$new_node->language] = _contentimport_prepare_images($import_row, $field, $new_node->language, $images_location);
+              }
               break;
             case 'taxonomy_term_reference':
-              $new_node->$field = _contentimport_prepare_taxonomy($row, $field, $new_node->language, $vocabularies);
+              if ($field === 'field_tags') {
+                $new_node->field_tags[$new_node->language] = _contentimport_prepare_taxonomy($import_row, $field, $new_node->language, $vocabularies);
+              }
               break;
 
             default:
-              drupal_set_message(t('Import for %fieldtype not handled.', array('%fieldtype' => $field_info['type'])), 'error');
+              drupal_set_message(t('Import for %field not handled.', array('%fieldtype' => $field_info['name'])), 'warning');
               break;
           }
         }
         else {
           // Do something, field does not exist.
           // For the moment, inform user.
-          drupal_set_message(t('Field %field does not exist. Data not imported.', array('%field' => $field)), 'error');
+          drupal_set_message(t('Field %field does not exist. Data not imported.', array('%field' => $field)), 'warning');
         }
       }
 
@@ -192,41 +202,43 @@ function _contentimport_prepare_data(array $data, $images_location) {
 /**
  * Custom function : handle field type image import.
  */
-function _contentimport_prepare_images($row, $field, $language, $images_location) {
+function _contentimport_prepare_images($import_row, $field, $language, $images_location) {
   $new_images = array();
-  if (isset($row[$field][$language]) && !empty($row[$field][$language])) {
-    foreach ($row[$field][$language] as $row_image) {
+  // Check if field array isn't empty.
+  if (isset($import_row[$field][$language]) && !empty($import_row[$field][$language])) {
+    // Cycle through field array.
+    foreach ($import_row[$field][$language] as $import_image) {
       // Build path to import file.
       $pattern = 'public://field/image/';
       $replacement = rtrim($images_location, '/');
       $replacement = $replacement . '/';
-      $import_uri = str_replace($pattern, $replacement, $row_image['uri']);
+      $import_uri = str_replace($pattern, $replacement, $import_image['uri']);
 
       // Check/create destination directory.
       // Cut filename off of file uri.
       $pattern = '/\/\w+\.[a-z]{3,4}$/';
-      $directory = preg_replace($pattern, '', $row_image['uri']);
+      $directory = preg_replace($pattern, '', $import_image['uri']);
       if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
         drupal_set_message(t('Failed to create destination directory %directory, or is not writable.', array('%directory' => $directory)), 'error');
       }
       else {
         // Open import file and save as managed file.
         $file_data = file_get_contents($import_uri);
-        $destination = $row_image['uri'];
+        $destination = $import_image['uri'];
         // CHANGE BACK TO FILE EXISTS RENAME !!!
-        $file = file_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
+        $file = file_save_data($file_data, $destination, CUSTOM_FILE_SAVE_BEHAVIOR);
 
         // Convert stdClass to assoc array.
         $file = json_decode(json_encode($file), TRUE);
 
         // Add additional data.
-        $file['alt'] = $row_image['alt'];
-        $file['title'] = $row_image['title'];
-        $file['width'] = $row_image['width'];
-        $file['height'] = $row_image['height'];
+        $file['alt'] = $import_image['alt'];
+        $file['title'] = $import_image['title'];
+        $file['width'] = $import_image['width'];
+        $file['height'] = $import_image['height'];
 
         // Add new file to array.
-        $new_images[$language][] = $file;
+        $new_images[] = $file;
       }
     }
   }
@@ -236,37 +248,68 @@ function _contentimport_prepare_images($row, $field, $language, $images_location
 /**
  * Custom function : handle field type taxonomy term reference import.
  */
-function _contentimport_prepare_taxonomy($row, $field, $language, $vocabularies) {
+function _contentimport_prepare_taxonomy($import_row, $field, $language, $vocabularies) {
   $new_terms = array();
-  if (isset($row[$field][$language]) && !empty($row[$field][$language])) {
-    foreach ($row[$field][$language] as $row_term) {
-      // Get vocabulary id for new term.
-      $term_vid = _contentimport_get_vocabulary_id($vocabularies, $row_term['vocabulary_machine_name']);
-      if ($term_vid !== FALSE) {
-        // Vocabulary exists, create term.
-        $term = new stdClass();
-        $term->vid = $term_vid;
-        $term->name = $row_term['name'];
-        $term->description = $row_term['description'];
-        $term->format = $row_term['format'];
-        $term->weight = $row_term['weight'];
-        $term->vocabulary_machine_name = $row_term['vocabulary_machine_name'];
+  $new_tids = array();
+  // Check if the field array isn't empty
+  if (isset($import_row[$field][$language]) && !empty($import_row[$field][$language])) {
+    // Cycle through field array.
+    foreach ($import_row[$field][$language] as $row_term) {
+      // Check if term exists.
+      $matching_terms = taxonomy_get_term_by_name($row_term['name'], $row_term['vocabulary_machine_name']);
+      if (empty($matching_terms)) {
+        // Get vocabulary id for new term.
+        $term_vid = _contentimport_get_vocabulary_id($vocabularies, $row_term['vocabulary_machine_name']);
+        if ($term_vid !== FALSE) {
+          // Vocabulary exists, create term.
+          $term = new stdClass();
+          $term->vid = $term_vid;
+          $term->name = $row_term['name'];
+          $term->description = $row_term['description'];
+          $term->format = $row_term['format'];
+          $term->weight = $row_term['weight'];
+          $term->vocabulary_machine_name = $row_term['vocabulary_machine_name'];
 
-        // Add new term to array.
-        $new_terms[$language][] = $term;
+          // Add new term to array.
+          $new_terms[] = $term;
+        }
+        else {
+          // Vocabulary does not exist, inform user.
+          drupal_set_message(t('Vocabulary %vocabulary for term %term does not exist, term not imported.', array(
+            '%vocabulary' => $row_term['vocabulary_machine_name'],
+            '%term' => $row_term['name'],
+              )), 'warning');
+        }
       }
       else {
-        // Vocabulary does not exist, inform user.
-        drupal_set_message(t('Vocabulary %vocabulary for term %term does not exist, term not imported.',
-            array(
-              '%vocabulary' => $row_term['vocabulary_machine_name'],
-              '%term' => $row_term['name'],
-              )),
-            'error');
+        // Term already exists.
+//        drupal_set_message(t('Vocabulary %vocabulary already contains a term called %term, term not imported.', array(
+//            '%vocabulary' => $row_term['vocabulary_machine_name'],
+//            '%term' => $row_term['name'],
+//              )), 'warning');
+        $keys = array_keys($matching_terms);
+        if (count($keys) > 1) {
+          drupal_set_message(t('More than 1 matching term for %term in vocabulary %vocabulary, unable to assign term to node.', array(
+            '%vocabulary' => $row_term['vocabulary_machine_name'],
+            '%term' => $row_term['name'],
+              )), 'error');
+        }
+        else {
+          $new_tids[] = $keys[0];
+        }
       }
     }
   }
-  return $new_terms;
+
+  // Create each new term and construct tid array to return.
+  foreach ($new_terms as $new_term) {
+    taxonomy_term_save($new_term);
+    $new_tids[] = array(
+      'tid' => $new_term->tid,
+    );
+  }
+
+  return $new_tids;
 }
 
 /**
