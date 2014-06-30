@@ -4,12 +4,11 @@
  * @file
  * A module that allows importing of content in JSON format.
  */
-
 /**
  * Custom constants
  */
 //Custom FILE_EXISTS, defined more for the ability to change possible multiple occurences from 1 location.
-define('CUSTOM_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
+define('CONTENTIMPORT_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
 
 /**
  * Implements hook_help().
@@ -76,7 +75,7 @@ function contentimport_form_submit($form, &$form_state) {
     _contentimport_import($files_location);
   }
 
-  // Redirect to export form.
+  // Redirect to import form.
   $form_state['redirect'] = 'import/locate-files';
 }
 
@@ -99,7 +98,16 @@ function _contentimport_import($files_location) {
     drupal_set_message('No JSON file found.', 'error');
     return;
   }
-//  $result = array_values($result);
+
+  // Load JSON data.
+  $json_file = array_shift($json_files);
+  $json_data = file_get_contents($json_file->uri);
+  $json_data = drupal_json_decode($json_data);
+//  dpm($json_data);
+  // Check import site prerequisites.
+  _contentimport_check_prerequisites($json_data, $files_location);
+
+  //  $result = array_values($result);
 //  dpm($json_files);
   // Check for image folder.
   $images_location = $files_location . '/image/';
@@ -109,18 +117,15 @@ function _contentimport_import($files_location) {
 //    return;
   }
 
-  // Load JSON data.
-  $json_file = array_shift($json_files);
-  $json_data = file_get_contents($json_file->uri);
-  $json_data = drupal_json_decode($json_data);
-  dpm($json_data);
+
+
 
   // Prepare import data
   $new_nodes = _contentimport_prepare_data($json_data, $images_location);
 
   // Save new nodes.
   foreach ($new_nodes as $node) {
-    node_save($node);
+//    node_save($node);
   }
 }
 
@@ -191,7 +196,7 @@ function _contentimport_prepare_data(array $import_data, $images_location) {
       $import_nodes[] = node_submit($new_node);
     }
     else {
-      drupal_set_message(t('Content type not available for import.'), 'error');
+      drupal_set_message(t('Content type %type not available for import.', array('%type' => $import_row['type'])), 'error');
     }
   }
   dpm($import_nodes);
@@ -226,7 +231,7 @@ function _contentimport_prepare_images($import_row, $field, $language, $images_l
         $file_data = file_get_contents($import_uri);
         $destination = $import_image['uri'];
         // CHANGE BACK TO FILE EXISTS RENAME !!!
-        $file = file_save_data($file_data, $destination, CUSTOM_FILE_SAVE_BEHAVIOR);
+        $file = file_save_data($file_data, $destination, CONTENTIMPORT_FILE_SAVE_BEHAVIOR);
 
         // Convert stdClass to assoc array.
         $file = json_decode(json_encode($file), TRUE);
@@ -325,4 +330,54 @@ function _contentimport_get_vocabulary_id($vocabularies, $search_machine_name) {
   }
 
   return $vid;
+}
+
+/**
+ * Custom function : check prerequisites on in import site.
+ */
+function _contentimport_check_prerequisites($json_data, $files_location) {
+  $prerequisites = array();
+
+  // Cycle through JSON data.
+  foreach ($json_data as $json_row) {
+    // Check if content type exists if the flag has not been set already.
+    // As the export is for one content type only this should happen on the first cycle.
+    if (!isset($prerequisites['content_type'])) {
+      $prerequisites['content_type'] = node_type_get_type($json_row['type']);
+    }
+    // Following checks should not happen if content type was not found.
+    if ($prerequisites['content_type'] !== FALSE) {
+      // Check missing fields, stop checking if already set.
+      if (!isset($prerequisites['missing_fields'])) {
+        // Get fields of content type.
+        $prerequisites['fields'] = field_read_fields(array(
+          'entity_type' => 'node',
+          'bundle' => $prerequisites['content_type']->type,
+        ));
+//      dpm($fields);
+        // Determine what custom fields are present in json data.
+        $json_row_keys = array_keys($json_row);
+        $json_field_keys = preg_grep('/^field_[a-z]*$/', $json_row_keys);
+        dpm($json_field_keys);
+        // Compare with json data to find missing fields.
+        $field_names = array_keys($prerequisites['fields']);
+
+        $prerequisites['missing_fields'] = array_diff($json_field_keys, $field_names);
+      }
+      // Check if any of the json rows have images, set the flag if it hasn't been set already.
+      if (!isset($prerequisites['images'])) {
+        //Cycle through fields.
+        foreach ($prerequisites['fields'] as $field) {
+          // If fieldtype is image, check if json array is empty.
+          if ($field['type'] === 'image') {
+            
+          }
+        }
+//      if (!empty($json_row)) {
+//        // Do something.
+//      }
+      }
+    }
+  }
+  dpm($prerequisites);
 }
