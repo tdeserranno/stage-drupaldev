@@ -69,8 +69,8 @@ function contentimport_fileslocation_form($form, &$form_state) {
  */
 function contentimport_fileslocation_form_submit($form, &$form_state) {
   // Begin import process.
-  _contentimport_import($form_state['values']['files_location']);
-  
+  _contentimport_begin_import($form_state['values']['files_location']);
+
   // Redirect to import form.
   $form_state['redirect'] = 'import/locate-files';
 }
@@ -90,11 +90,11 @@ function contentimport_fileslocation_form_validate($form, &$form_state) {
 }
 
 /**
- * Custom function : import data located at given location.
+ * Custom function : conduct initial checks before import.
  */
-function _contentimport_import($files_location) {
+function _contentimport_begin_import($files_location) {
   // Check for JSON file.
-  $regex = '/\.json$/';
+  $regex = '/\w+\.json$/';
   $options = array('recurse' => TRUE);
   $json_files = file_scan_directory($files_location, $regex, $options);
 //  dpm($json_file);
@@ -114,34 +114,34 @@ function _contentimport_import($files_location) {
   $json_data = file_get_contents($json_file->uri);
   $json_data = drupal_json_decode($json_data);
 //  dpm($json_data);
-  // Check import site prerequisites.
-  $prerequisites = _contentimport_check_prerequisites($json_data, $files_location);
-//  dpm($prerequisites);
-  //  $result = array_values($result);
-//  dpm($json_files);
-  // Evaluate prerequisites and take appropriate action.
-  if ($prerequisites['content_type'] === FALSE) {
+  // Check import site requirements.
+  $requirements = _contentimport_check_requirements($json_data, $files_location);
+//  dpm($requirements);
+  // Evaluate requirements and take appropriate action.
+  if ($requirements['content_type'] === FALSE) {
     // Content type is not available, halt import.
+    drupal_set_message(t('The content type that you are attempting to import is not available on this site.'), 'error');
+    drupal_goto('import/locate-files');
   }
   else {
     $warnings = array();
     // Content type is available, continue import.
     // Check missing fields
-    if (!empty($prerequisites['missing_fields'])) {
-      foreach ($prerequisites['missing_fields'] as $missing_field) {
+    if (!empty($requirements['missing_fields'])) {
+      foreach ($requirements['missing_fields'] as $missing_field) {
         $warnings['missing_fields'][$missing_field] = t(
             'The field %field is present in the import data but not available on this site.', array('%field' => $missing_field));
       }
     }
 
     // Check if images are used.
-    if ($prerequisites['images'] === TRUE) {
+    if ($requirements['images'] === TRUE) {
       // Check if images location is valid.
-      if ($prerequisites['images_location'] === FALSE) {
+      if ($requirements['images_location'] === FALSE) {
         $warnings['images_location'] = t(
             'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
       }
-      elseif ($prerequisites['image_files'] === FALSE) {
+      elseif ($requirements['image_files'] === FALSE) {
         $warnings['image_files'] = t(
             'There are images present in the import data but the image folder does not contain any image files.');
       }
@@ -156,80 +156,87 @@ function _contentimport_import($files_location) {
     }
     else {
       // Continue import
-      _contentimport_import_continue($json_data, $prerequisites['images_location']);
+      _contentimport_import($json_data, $requirements);
     }
+  }
+}
+
+/**
+ * Custom function : start actual import process.
+ */
+function _contentimport_import($json_data, $requirements) {
+  // Prepare import data
+  $new_nodes = _contentimport_prepare_data($json_data, $requirements);
+
+  // Save new nodes.
+  foreach ($new_nodes as $node) {
+//    node_save($node);
   }
 }
 
 /**
  * Custom function : prepare json_data for import.
  */
-function _contentimport_prepare_data(array $import_data, $images_location) {
+function _contentimport_prepare_data(array $import_data, $requirements) {
   $import_nodes = array();
   global $user;
-  // Get site's node types.
-  $node_types = node_type_get_types();
 
+  // Get site's node types. EDIT: no longer needed? checked by requirements?
+//  $node_types = node_type_get_types();
   // Get site vocabularies.
   $vocabularies = taxonomy_vocabulary_get_names();
 
   // Cylce through data array.
   foreach ($import_data as $import_row) {
-    // Check if node type to be imported exists on the site.
-    if (isset($node_types[$import_row['type']])) {
-      // Build new node.
-      $new_node = new stdClass();
-      $new_node->type = $import_row['type'];
-      node_object_prepare($new_node);
-      $new_node->language = LANGUAGE_NONE;
-      $new_node->title = $import_row['title'];
-      $new_node->status = (boolean) $import_row['status'];
-      $new_node->comment = (integer) $import_row['comment'];
-      $new_node->promote = (boolean) $import_row['promote'];
-      $new_node->sticky = (boolean) $import_row['sticky'];
-      $new_node->body = $import_row['body'];
-      $new_node->uid = $user->uid;
+    // Check if node type to be imported exists on the site. EDIT: no longer needed? checked by requirements?
+//    if (isset($node_types[$import_row['type']])) {
+    // Build new node.
+    $new_node = new stdClass();
+    $new_node->type = $import_row['type'];
+    node_object_prepare($new_node);
+    $new_node->language = LANGUAGE_NONE;
+    $new_node->title = $import_row['title'];
+    $new_node->status = (boolean) $import_row['status'];
+    $new_node->comment = (integer) $import_row['comment'];
+    $new_node->promote = (boolean) $import_row['promote'];
+    $new_node->sticky = (boolean) $import_row['sticky'];
+    $new_node->body = $import_row['body'];
+    $new_node->uid = $user->uid;
 
-      // Determine what field types are present.
-      $property_keys = array_keys($import_row);
-      $field_keys = preg_grep('/^field_[a-z]*$/', $property_keys);
-//    dpm($field_keys);
-      // Handle fields.
-      foreach ($field_keys as $field) {
-        // Get field type.
-        $field_info = field_info_field($field);
-        // Check if field exists.
-        if ($field_info !== NULL) {
-          switch ($field_info['type']) {
-            case 'image':
-              if ($field === 'field_image') {
-                $new_node->field_image[$new_node->language] = _contentimport_prepare_images($import_row, $field, $new_node->language, $images_location);
-              }
-              break;
-            case 'taxonomy_term_reference':
-              if ($field === 'field_tags') {
-                $new_node->field_tags[$new_node->language] = _contentimport_prepare_taxonomy($import_row, $field, $new_node->language, $vocabularies);
-              }
+    // Filter fields that don't require special handling.
+    unset($requirements['fields']['body']);
+    // Handle fields.
+    foreach ($requirements['fields'] as $field) {
+      // Nested switches because im not sure of what will happen when there are more than 1 of image type.
+      // Also behavior of the export module is a factor, namely the location where the image files are copied to.
+      // Therefor nesting switch to isolate each image type, giving the possibility to supply different
+      // image_locations but requiring seperate handling for each field.
+      switch ($field['type']) {
+        case 'image':
+          switch ($field['field_name']) {
+            case 'field_image':
+              $new_node->field_image[$new_node->language] = 
+                _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
               break;
 
             default:
-              drupal_set_message(t('Import for %field not handled.', array('%fieldtype' => $field_info['name'])), 'warning');
+              _contentimport_field_not_handled($field['field_name'], $field['type']);
               break;
           }
-        }
-        else {
-          // Do something, field does not exist.
-          // For the moment, inform user.
-          drupal_set_message(t('Field %field does not exist. Data not imported.', array('%field' => $field)), 'warning');
-        }
-      }
+          break;
+        case 'taxonomy_term_reference':
+          $new_node->field_tags[$new_node->language] = 
+            _contentimport_prepare_taxonomy($import_row, $field['field_name'], $new_node->language, $vocabularies);
+          break;
 
-      // Submit node.
-      $import_nodes[] = node_submit($new_node);
+        default:
+          _contentimport_field_not_handled($field['field_name'], $field['type']);
+          break;
+      }
     }
-    else {
-      drupal_set_message(t('Content type %type not available for import.', array('%type' => $import_row['type'])), 'error');
-    }
+
+    // Submit node.
+    $import_nodes[] = node_submit($new_node);
   }
   dpm($import_nodes);
 
@@ -291,6 +298,7 @@ function _contentimport_prepare_taxonomy($import_row, $field, $language, $vocabu
   // Check if the field array isn't empty
   if (isset($import_row[$field][$language]) && !empty($import_row[$field][$language])) {
     // Cycle through field array.
+    dpm($import_row[$field][$language]);
     foreach ($import_row[$field][$language] as $row_term) {
       // Check if term exists.
       $matching_terms = taxonomy_get_term_by_name($row_term['name'], $row_term['vocabulary_machine_name']);
@@ -365,27 +373,27 @@ function _contentimport_get_vocabulary_id($vocabularies, $search_machine_name) {
 }
 
 /**
- * Custom function : check prerequisites on in import site.
+ * Custom function : check requirements on import site.
  */
-function _contentimport_check_prerequisites($json_data, $files_location) {
-  $prerequisites = array();
+function _contentimport_check_requirements($json_data, $files_location) {
+  $requirements = array();
 
   // Cycle through JSON data.
   foreach ($json_data as $json_row) {
     // Check if content type exists if the flag has not been set already.
     // As the export is for one content type only this should happen on the first cycle.
-    if (!isset($prerequisites['content_type'])) {
-      $prerequisites['content_type'] = node_type_get_type($json_row['type']);
+    if (!isset($requirements['content_type'])) {
+      $requirements['content_type'] = node_type_get_type($json_row['type']);
     }
 
     // Following checks should not happen if content type was not found.
-    if ($prerequisites['content_type'] !== FALSE) {
+    if ($requirements['content_type'] !== FALSE) {
       // Check missing fields, stop checking if already set.
-      if (!isset($prerequisites['missing_fields'])) {
+      if (!isset($requirements['missing_fields'])) {
         // Get fields of content type.
-        $prerequisites['fields'] = field_read_fields(array(
+        $requirements['fields'] = field_read_fields(array(
           'entity_type' => 'node',
-          'bundle' => $prerequisites['content_type']->type,
+          'bundle' => $requirements['content_type']->type,
         ));
 //      dpm($fields);
         // Determine what custom fields are present in json data.
@@ -393,18 +401,18 @@ function _contentimport_check_prerequisites($json_data, $files_location) {
         $json_field_keys = preg_grep('/^field_[a-z]*$/', $json_row_keys);
 //        dpm($json_field_keys);
         // Compare with json data to find missing fields.
-        $field_names = array_keys($prerequisites['fields']);
-        $prerequisites['missing_fields'] = array_diff($json_field_keys, $field_names);
+        $field_names = array_keys($requirements['fields']);
+        $requirements['missing_fields'] = array_diff($json_field_keys, $field_names);
       }
 
       // Check if any of the json rows have images, set flag if it hasn't been set already.
-      if (!isset($prerequisites['images'])) {
+      if (!isset($requirements['images'])) {
         //Cycle through fields.
-        foreach ($prerequisites['fields'] as $field) {
+        foreach ($requirements['fields'] as $field) {
           // If fieldtype is image, set flag if field is not empty.
           if ($field['type'] === 'image') {
             if (!empty($json_row[$field['field_name']])) {
-              $prerequisites['images'] = TRUE;
+              $requirements['images'] = TRUE;
             }
           }
         }
@@ -413,48 +421,35 @@ function _contentimport_check_prerequisites($json_data, $files_location) {
       // Check for image folder @ files location.
       $images_location = rtrim($files_location, '/') . '/image';
       if (!is_dir($images_location)) {
-        $prerequisites['images_location'] = FALSE;
+        $requirements['images_location'] = FALSE;
       }
       else {
-        $prerequisites['images_location'] = $images_location;
+        $requirements['images_location'] = $images_location;
       }
 
       // If images_location is valid, check for images.
-      if ($prerequisites['images_location'] !== FALSE) {
+      if ($requirements['images_location'] !== FALSE) {
         // If images are used, check if export folder isn't empty.
-        if ($prerequisites['images']) {
+        if ($requirements['images']) {
           // Scan images_location.
           $regex = '/\w+\.(jpg|png|jpeg|gif)$/';
           $options = array('recurse' => TRUE);
-          $images = file_scan_directory($prerequisites['images_location'], $regex, $options);
+          $images = file_scan_directory($requirements['images_location'], $regex, $options);
 //        dpm($images);
           // Check for images and set flag.
           if (!empty($images)) {
-            $prerequisites['image_files'] = TRUE;
+            $requirements['image_files'] = TRUE;
           }
           else {
-            $prerequisites['image_files'] = FALSE;
+            $requirements['image_files'] = FALSE;
           }
         }
       }
     }
   }
-//  dpm($prerequisites);
+//  dpm($requirements);
 
-  return $prerequisites;
-}
-
-/**
- * Custom function : continue import.
- */
-function _contentimport_import_continue($json_data, $images_location) {
-  // Prepare import data
-  $new_nodes = _contentimport_prepare_data($json_data, $images_location);
-
-  // Save new nodes.
-  foreach ($new_nodes as $node) {
-//    node_save($node);
-  }
+  return $requirements;
 }
 
 /**
@@ -514,4 +509,14 @@ function contentimport_warning_form($form, &$form_state) {
   $question = t('Are you sure you want to continue the import despite these warnings?');
   $path = 'import/locate-files';
   return confirm_form($form, $question, $path);
+}
+
+/**
+ * Custom function : display message if field isn't handled for import.
+ */
+function _contentimport_field_not_handled($name, $type) {
+  drupal_set_message(t('Import for %field of type %field_type not handled.', array(
+    '%field' => $name,
+    '%field_type' => $type,
+      )), 'warning');
 }
