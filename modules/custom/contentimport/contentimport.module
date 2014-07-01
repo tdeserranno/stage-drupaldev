@@ -31,6 +31,12 @@ function contentimport_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
+  $items['import/warnings'] = array(
+    'title' => 'Import warnings',
+    'page callback' => '_contentimport_warning_page',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
 
   return $items;
 }
@@ -105,27 +111,50 @@ function _contentimport_import($files_location) {
   $json_data = drupal_json_decode($json_data);
 //  dpm($json_data);
   // Check import site prerequisites.
-  _contentimport_check_prerequisites($json_data, $files_location);
-
+  $prerequisites = _contentimport_check_prerequisites($json_data, $files_location);
+//  dpm($prerequisites);
   //  $result = array_values($result);
 //  dpm($json_files);
-  // Check for image folder.
-  $images_location = $files_location . '/image/';
-  if (!is_dir($images_location)) {
-    drupal_set_message(
-        t('No image directory found in %import_directory.', array('%import_directory' => $files_location)), 'error');
-//    return;
+  // Evaluate prerequisites and take appropriate action.
+  if ($prerequisites['content_type'] === FALSE) {
+    // Content type is not available, halt import.
   }
+  else {
+    $warnings = array();
+    // Content type is available, continue import.
+    // Check missing fields
+    if (!empty($prerequisites['missing_fields'])) {
+      foreach ($prerequisites['missing_fields'] as $missing_field) {
+        $warnings['missing_fields'][$missing_field] = t(
+            'The field %field is present in the import data but not available on this site.',
+            array('%field' => $missing_field));
+      }
+    }
 
+    // Check if images are used.
+    if ($prerequisites['images'] === TRUE) {
+      // Check if images location is valid.
+      if ($prerequisites['images_location'] === FALSE) {
+        $warnings['images_location'] = t(
+            'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
+      }
+      elseif ($prerequisites['image_files'] === FALSE) {
+        $warnings['image_files'] = t(
+            'There are images present in the import data but the image folder does not contain any image files.');
+      }
+    }
 
-
-
-  // Prepare import data
-  $new_nodes = _contentimport_prepare_data($json_data, $images_location);
-
-  // Save new nodes.
-  foreach ($new_nodes as $node) {
-//    node_save($node);
+    // If warnings not empty go to warnings form, otherwise continue import
+    if (!empty($warnings)) {
+      // Store warnings in SESSION
+      $_SESSION['contentimport']['warnings'] = $warnings;
+      // Go to warnings page.
+      drupal_goto('import/warnings');
+    }
+    else {
+      // Continue import
+      _contentimport_import_continue($json_data, $prerequisites['images_location']);
+    }
   }
 }
 
@@ -345,6 +374,7 @@ function _contentimport_check_prerequisites($json_data, $files_location) {
     if (!isset($prerequisites['content_type'])) {
       $prerequisites['content_type'] = node_type_get_type($json_row['type']);
     }
+
     // Following checks should not happen if content type was not found.
     if ($prerequisites['content_type'] !== FALSE) {
       // Check missing fields, stop checking if already set.
@@ -358,26 +388,126 @@ function _contentimport_check_prerequisites($json_data, $files_location) {
         // Determine what custom fields are present in json data.
         $json_row_keys = array_keys($json_row);
         $json_field_keys = preg_grep('/^field_[a-z]*$/', $json_row_keys);
-        dpm($json_field_keys);
+//        dpm($json_field_keys);
         // Compare with json data to find missing fields.
         $field_names = array_keys($prerequisites['fields']);
-
         $prerequisites['missing_fields'] = array_diff($json_field_keys, $field_names);
       }
-      // Check if any of the json rows have images, set the flag if it hasn't been set already.
+
+      // Check if any of the json rows have images, set flag if it hasn't been set already.
       if (!isset($prerequisites['images'])) {
         //Cycle through fields.
         foreach ($prerequisites['fields'] as $field) {
-          // If fieldtype is image, check if json array is empty.
+          // If fieldtype is image, set flag if field is not empty.
           if ($field['type'] === 'image') {
-            
+            if (!empty($json_row[$field['field_name']])) {
+              $prerequisites['images'] = TRUE;
+            }
           }
         }
-//      if (!empty($json_row)) {
-//        // Do something.
-//      }
+      }
+
+      // Check for image folder @ files location.
+      $images_location = rtrim($files_location, '/') . '/image';
+      if (!is_dir($images_location)) {
+        $prerequisites['images_location'] = FALSE;
+      }
+      else {
+        $prerequisites['images_location'] = $images_location;
+      }
+
+      // If images_location is valid, check for images.
+      if ($prerequisites['images_location'] !== FALSE) {
+        // If images are used, check if export folder isn't empty.
+        if ($prerequisites['images']) {
+          // Scan images_location.
+          $regex = '/\w+\.(jpg|png|jpeg|gif)$/';
+          $options = array('recurse' => TRUE);
+          $images = file_scan_directory($prerequisites['images_location'], $regex, $options);
+//        dpm($images);
+          // Check for images and set flag.
+          if (!empty($images)) {
+            $prerequisites['image_files'] = TRUE;
+          }
+          else {
+            $prerequisites['image_files'] = FALSE;
+          }
+        }
       }
     }
   }
-  dpm($prerequisites);
+//  dpm($prerequisites);
+
+  return $prerequisites;
+}
+
+/**
+ * Custom function : continue import.
+ */
+function _contentimport_import_continue($json_data, $images_location) {
+  // Prepare import data
+  $new_nodes = _contentimport_prepare_data($json_data, $images_location);
+
+  // Save new nodes.
+  foreach ($new_nodes as $node) {
+//    node_save($node);
+  }
+}
+
+/**
+ * Custom function : create render array for warnings page + form
+ */
+function _contentimport_warning_page() {
+  // Get warnings from SESSION
+  if (isset($_SESSION['contentimport']['warnings'])) {
+    $warnings = $_SESSION['contentimport']['warnings'];
+    unset($_SESSION['contentimport']['warnings']);
+
+    $render_array = array();
+
+    // Warnings.
+    dpm($warnings);
+    // Missing fields.
+    if (isset($warnings['missing_fields']) && !empty($warnings['missing_fields'])) {
+      $render_array['warnings']['missing_fields'] = array(
+        '#theme' => 'item_list',
+        '#items' => $warnings['missing_fields'],
+      );
+    }
+    // Images.
+    if (isset($warnings['images_location'])) {
+      $render_array['warnings']['images_location'] = array(
+        '#markup' => $warnings['images_location'],
+      );
+    }
+    if (isset($warnings['image_files'])) {
+      $render_array['warnings']['image_files'] = array(
+        '#markup' => $warnings['image_location'],
+      );
+    }
+
+    // Form.
+    $render_array['form'] = drupal_get_form('contentimport_warning_form');
+
+    return $render_array;
+  } else {
+    // Warnings not set in SESSION, something went terribly wrong here ...
+    drupal_set_message(t('Warnings page was called but no warnings were stored in session. Import was halted.'), 'error');
+    drupal_goto('import/locate-files');
+  }
+}
+
+/**
+ * Form builder : import warning form.
+ */
+function contentimport_warning_form($form, &$form_state) {
+  $form['remember_choice'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Remember your choice for future imports from this file location?'),
+    '#default_value' => 0,
+  );
+
+  $question = t('Are you sure you want to continue the import despite these warnings?');
+  $path = 'import/locate-files';
+  return confirm_form($form, $question, $path);
 }
