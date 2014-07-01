@@ -27,7 +27,7 @@ function contentimport_menu() {
     'title' => 'Import content',
     'description' => 'Specify the location of the import files.',
     'page callback' => 'drupal_get_form',
-    'page arguments' => array('contentimport_form'),
+    'page arguments' => array('contentimport_fileslocation_form'),
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
@@ -42,9 +42,9 @@ function contentimport_menu() {
 }
 
 /**
- * Form builder : contentimport specify files location form.
+ * Form builder : specify the location of the import files.
  */
-function contentimport_form($form, &$form_state) {
+function contentimport_fileslocation_form($form, &$form_state) {
   $form['files_location'] = array(
     '#type' => 'textfield',
     '#title' => t('Import files location'),
@@ -65,24 +65,28 @@ function contentimport_form($form, &$form_state) {
 }
 
 /**
- * Form submit handler : contentimport form.
+ * Form submit handler : contentimport_fileslocation_form.
  */
-function contentimport_form_submit($form, &$form_state) {
+function contentimport_fileslocation_form_submit($form, &$form_state) {
+  // Begin import process.
+  _contentimport_import($form_state['values']['files_location']);
+  
+  // Redirect to import form.
+  $form_state['redirect'] = 'import/locate-files';
+}
+
+/**
+ * Form validation : contentimport_fileslocation_form.
+ */
+function contentimport_fileslocation_form_validate($form, &$form_state) {
   $files_location = $form_state['values']['files_location'];
   // Trim trailing slash.
   $files_location = rtrim($files_location, '/');
 
   // Check if files location exists.
   if (!is_dir($files_location)) {
-    drupal_set_message(
-        t('The specified location %location does not exist or is not a directory.', array('%location' => $files_location)), 'error');
+    form_set_error('files_location', t('The specified location %location does not exist or is not a directory.', array('%location' => $files_location)));
   }
-  else {
-    _contentimport_import($files_location);
-  }
-
-  // Redirect to import form.
-  $form_state['redirect'] = 'import/locate-files';
 }
 
 /**
@@ -126,8 +130,7 @@ function _contentimport_import($files_location) {
     if (!empty($prerequisites['missing_fields'])) {
       foreach ($prerequisites['missing_fields'] as $missing_field) {
         $warnings['missing_fields'][$missing_field] = t(
-            'The field %field is present in the import data but not available on this site.',
-            array('%field' => $missing_field));
+            'The field %field is present in the import data but not available on this site.', array('%field' => $missing_field));
       }
     }
 
@@ -490,7 +493,8 @@ function _contentimport_warning_page() {
     $render_array['form'] = drupal_get_form('contentimport_warning_form');
 
     return $render_array;
-  } else {
+  }
+  else {
     // Warnings not set in SESSION, something went terribly wrong here ...
     drupal_set_message(t('Warnings page was called but no warnings were stored in session. Import was halted.'), 'error');
     drupal_goto('import/locate-files');
