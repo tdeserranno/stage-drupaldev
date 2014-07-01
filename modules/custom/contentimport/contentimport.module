@@ -225,7 +225,8 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
           }
           break;
         case 'taxonomy_term_reference':
-          $new_node->field_tags[$new_node->language] = 
+//          $property = $field['field_name'];
+          $new_node->{$field['field_name']}[$new_node->language] = 
             _contentimport_prepare_taxonomy($import_row, $field['field_name'], $new_node->language, $vocabularies);
           break;
 
