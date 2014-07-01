@@ -211,11 +211,13 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
       // Also behavior of the export module is a factor, namely the location where the image files are copied to.
       // Therefor nesting switch to isolate each image type, giving the possibility to supply different
       // image_locations but requiring seperate handling for each field.
+      // SUBJECT TO CHANGE IN THE FUTURE
       switch ($field['type']) {
         case 'image':
           switch ($field['field_name']) {
             case 'field_image':
-              $new_node->field_image[$new_node->language] = 
+              // ! enclose dynamic property names in {}
+              $new_node->{$field['field_name']}[$new_node->language] = 
                 _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
               break;
 
@@ -225,7 +227,7 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
           }
           break;
         case 'taxonomy_term_reference':
-//          $property = $field['field_name'];
+          // ! enclose dynamic property names in {}
           $new_node->{$field['field_name']}[$new_node->language] = 
             _contentimport_prepare_taxonomy($import_row, $field['field_name'], $new_node->language, $vocabularies);
           break;
@@ -254,6 +256,7 @@ function _contentimport_prepare_images($import_row, $field, $language, $images_l
     // Cycle through field array.
     foreach ($import_row[$field][$language] as $import_image) {
       // Build path to import file.
+      // ! what happens with multiple image field types?? 
       $pattern = 'public://field/image/';
       $replacement = rtrim($images_location, '/');
       $replacement = $replacement . '/';
@@ -329,10 +332,6 @@ function _contentimport_prepare_taxonomy($import_row, $field, $language, $vocabu
       }
       else {
         // Term already exists.
-//        drupal_set_message(t('Vocabulary %vocabulary already contains a term called %term, term not imported.', array(
-//            '%vocabulary' => $row_term['vocabulary_machine_name'],
-//            '%term' => $row_term['name'],
-//              )), 'warning');
         $keys = array_keys($matching_terms);
         if (count($keys) > 1) {
           drupal_set_message(t('More than 1 matching term for %term in vocabulary %vocabulary, unable to assign term to node.', array(
