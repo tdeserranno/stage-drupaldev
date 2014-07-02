@@ -63,21 +63,30 @@ function contentexport_form($form, &$form_state) {
  * Form submit handler : handle contentexport_form.
  */
 function contentexport_form_submit($form, &$form_state) {
-  // Load nodes.
   $node_type = $form_state['values']['content_type'];
-  $nodes = _contentexport_get_nodes($node_type);
+
+  // Get fields for node_type.
+  $fields = field_read_fields(array(
+    'entity_type' => 'node',
+    'bundle' => $node_type,
+  ));
+  // Filter out fields that don't need to be checked.
+  unset($fields['body']);
+
+  // Load nodes.
+  $nodes = _contentexport_get_nodes($node_type, $fields);
 
   // Export nodes.
   if (!empty($nodes)) {
     dpm($nodes);
-    _export_nodes_json_unmanaged($nodes);
+    _export_nodes_json_unmanaged($nodes, $fields);
   }
 }
 
 /**
  * Custom function : get all nodes of selected type.
  */
-function _contentexport_get_nodes($node_type) {
+function _contentexport_get_nodes($node_type, $fields) {
   $nodes = array();
   // Get nids from database.
   $query = db_select('node', 'n')
@@ -90,15 +99,6 @@ function _contentexport_get_nodes($node_type) {
     $nodes = node_load_multiple($nids);
     dpm($nodes);
 
-    // Get fields for node_type.
-    $fields = field_read_fields(array(
-      'entity_type' => 'node',
-      'bundle' => $node_type,
-    ));
-
-    // Filter out fields that don't need to be checked.
-    unset($fields['body']);
-    
     // Create array of field names to test node properties against.
     $field_names = array_keys($fields);
 
@@ -132,7 +132,7 @@ function _contentexport_get_nodes($node_type) {
 /**
  * Custom function : export given nodes to JSON format.
  */
-function _export_nodes_json_unmanaged(array $nodes) {
+function _export_nodes_json_unmanaged(array $nodes, $fields) {
   // Check if there is actual data to export.
   if (empty($nodes)) {
     // Inform user.
