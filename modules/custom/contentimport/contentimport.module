@@ -127,7 +127,7 @@ function _contentimport_begin_import($files_location) {
   else {
     // Content type is available, continue import.
     $warnings = array();
-    $warnings['files_location'] = $files_location;
+    
     // Check missing fields
     if (!empty($requirements['missing_fields'])) {
       foreach ($requirements['missing_fields'] as $missing_field) {
@@ -154,7 +154,7 @@ function _contentimport_begin_import($files_location) {
       // Check contentimport_remember table if warnings for this import location need to be ignored.
       $query = db_select('contentimport_remember', 'cir')
           ->fields('cir', array('import_location'))
-          ->condition('import_location', $warnings['files_location'])
+          ->condition('import_location', $files_location)
           ->range(0, 1);
       $ignore_location = $query->execute()->fetchCol();
 
@@ -162,6 +162,7 @@ function _contentimport_begin_import($files_location) {
       if (empty($ignore_location)) {
         // Store variables in SESSION
         $_SESSION['contentimport']['warnings'] = $warnings;
+        $_SESSION['contentimport']['files_location'] = $files_location;
         $_SESSION['contentimport']['json_data'] = $json_data;
         $_SESSION['contentimport']['requirements'] = $requirements;
         // Go to warnings page.
@@ -189,6 +190,11 @@ function _contentimport_import($json_data, $requirements) {
   // Save new nodes.
   foreach ($new_nodes as $node) {
 //    node_save($node);
+  }
+  
+  // SESSION cleanup
+  if (isset($_SESSION['contentimport'])) {
+    unset($_SESSION['contentimport']);
   }
 }
 
@@ -475,14 +481,12 @@ function _contentimport_check_requirements($json_data, $files_location) {
  * Custom function : create render array for warnings page + form
  */
 function _contentimport_warning_page() {
-  // Get variables from SESSION
   if (isset($_SESSION['contentimport']['warnings'])) {
+    // Get variables from SESSION
     $warnings = $_SESSION['contentimport']['warnings'];
-//    unset($_SESSION['contentimport']['warnings']);
     $json_data = $_SESSION['contentimport']['json_data'];
-//    unset($_SESSION['contentimport']['json_data']);
     $requirements = $_SESSION['contentimport']['requirements'];
-//    unset($_SESSION['contentimport']['requirements']);
+    $files_location = $_SESSION['contentimport']['files_location'];
 
     $render_array = array();
 
@@ -508,7 +512,7 @@ function _contentimport_warning_page() {
     }
 
     // Form.
-    $render_array['form'] = drupal_get_form('contentimport_warning_form', $warnings['files_location'], $json_data, $requirements);
+    $render_array['form'] = drupal_get_form('contentimport_warning_form', $files_location, $json_data, $requirements);
 
     return $render_array;
   }
