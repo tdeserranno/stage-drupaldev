@@ -5,7 +5,6 @@
  * A module that allows exporting of content in JSON format.
  * 
  */
-
 /**
  * Custom constants
  */
@@ -64,47 +63,62 @@ function contentexport_form($form, &$form_state) {
  * Form submit handler : handle contentexport_form.
  */
 function contentexport_form_submit($form, &$form_state) {
-  $page_array = array();
-
   // Load nodes.
   $node_type = $form_state['values']['content_type'];
   $nodes = _contentexport_get_nodes($node_type);
-  dpm($nodes);
-  
-  // Export nodes.
-  _export_nodes_json_unmanaged($nodes);
 
-  return $page_array;
+  // Export nodes.
+  if (!empty($nodes)) {
+    dpm($nodes);
+    _export_nodes_json_unmanaged($nodes);
+  }
 }
 
 /**
  * Custom function : get all nodes of selected type.
  */
 function _contentexport_get_nodes($node_type) {
+  $nodes = array();
+  // Get nids from database.
   $query = db_select('node', 'n')
       ->fields('n', array('nid', 'type'))
       ->condition('type', $node_type);
   $nids = $query->execute()->fetchCol();
 
-  $nodes = node_load_multiple($nids);
-  dpm($nodes);
+  // Load nodes.
+  if (!empty($nids)) {
+    $nodes = node_load_multiple($nids);
+    dpm($nodes);
 
-  // Cycle through all nodes to load any extra data, in this case the taxonomy terms.
-  // Note: loop values by reference so that it is possible to load the data into the same position of the array.
-  foreach ($nodes as &$node) {
-    // Cycle through each node property.
-    foreach ($node as $property_name => &$property) {
-      // Find the field properties.
-      $fieldname_regex = '/^field_[a-z]*$/';
-      if (preg_match($fieldname_regex, $property_name)) {
-        // Load the field info for the field.
-        $field_info = field_info_field($property_name);
+    // Get fields for node_type.
+    $fields = field_read_fields(array(
+      'entity_type' => 'node',
+      'bundle' => $node_type,
+    ));
+
+    // Filter out fields that don't need to be checked.
+    unset($fields['body']);
+    
+    // Create array of field names to test node properties against.
+    $field_names = array_keys($fields);
+
+    // Cycle through all nodes to load any extra data, in this case the taxonomy terms.
+    // Note: loop values by reference so that it is possible to load the data into the same position of the array.
+    foreach ($nodes as &$node) {
+      // Cycle through each node property.
+      foreach ($node as $property_name => &$property) {
+        // Find the field properties.
+//        $fieldname_regex = '/^field_[a-z]*$/';
+        if (in_array($property_name, $field_names)) {
+          // Load the field info for the field.
+          $field_info = $fields[$property_name];
 //        dpm($field_info);
-        // If the field is a taxonomy term reference, load the term.
-        if ($field_info['type'] === 'taxonomy_term_reference') {
-          if (isset($property['und']) && !empty($property['und'])) {
-            foreach ($property['und'] as &$term) {
-              $term = taxonomy_term_load($term['tid']);
+          // If the field is a taxonomy term reference, load the term.
+          if ($field_info['type'] === 'taxonomy_term_reference') {
+            if (isset($property['und']) && !empty($property['und'])) {
+              foreach ($property['und'] as &$term) {
+                $term = taxonomy_term_load($term['tid']);
+              }
             }
           }
         }
@@ -141,7 +155,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
     if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
       throw new Exception(t('Failed to create %directory.', array('%directory' => $directory)));
     }
-    
+
     // Create export image directory.
     $images_directory = 'public://export/' . _export_generate_filename($first_node->type) . '/image';
     if (!file_prepare_directory($images_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
@@ -185,7 +199,7 @@ function _export_nodes_json_unmanaged(array $nodes) {
     // Notify user.
     if (!empty($errors)) {
       // Log errors.
-      if (_contentexport_log_errors($errors) === FALSE){
+      if (_contentexport_log_errors($errors) === FALSE) {
         drupal_set_message(t('Error logging failed.'), 'error');
       }
     }
@@ -231,38 +245,38 @@ function _export_generate_filename($prefix, $extension = '') {
  */
 function _contentexport_log_errors(array $errors, $exception = NULL) {
   // Create log directory.
-    $directory = 'public://export/log/';
-    if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
-      drupal_set_message(t('Failed to create %directory.', array('%directory' => $directory)), 'error');
-      return FALSE;
-    }
-  
+  $directory = 'public://export/log/';
+  if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+    drupal_set_message(t('Failed to create %directory.', array('%directory' => $directory)), 'error');
+    return FALSE;
+  }
+
   // Create error log.
-    $file = $directory . 'errorlog.txt';
-    if (!empty($errors)) {
-      foreach ($errors as $error) {
-        // Build errorstring.
-        $errorstring = format_date(REQUEST_TIME, 'custom', 'd-m-Y H:i:s') . ' : ' . $error . PHP_EOL;
-        
-        // Write errorstring.
-        if (file_put_contents($file, $errorstring, FILE_APPEND | LOCK_EX) === FALSE) {
-          drupal_set_message(t('Failed to write %string to error logfile.', array('%string' => $errorstring)), 'error');
-          return FALSE;
-        }
+  $file = $directory . 'errorlog.txt';
+  if (!empty($errors)) {
+    foreach ($errors as $error) {
+      // Build errorstring.
+      $errorstring = format_date(REQUEST_TIME, 'custom', 'd-m-Y H:i:s') . ' : ' . $error . PHP_EOL;
+
+      // Write errorstring.
+      if (file_put_contents($file, $errorstring, FILE_APPEND | LOCK_EX) === FALSE) {
+        drupal_set_message(t('Failed to write %string to error logfile.', array('%string' => $errorstring)), 'error');
+        return FALSE;
       }
     }
-    
+  }
+
   // Notify user about fatal error.
   $url = file_create_url($file);
   if ($exception !== NULL) {
     drupal_set_message(t('A fatal error occurred during the export process. See the errorlog for details, accessible via !url.', array(
-        '!url' => l(t('this URL'), $url),
-      )), 'error');
+      '!url' => l(t('this URL'), $url),
+        )), 'error');
   }
   // Notify user about file copy errors.
   else {
     drupal_set_message(t('Some files were not copied. See the errorlog for details, accessible via !url.', array(
-        '!url' => l(t('this URL'), $url),
-      )), 'warning');
+      '!url' => l(t('this URL'), $url),
+        )), 'warning');
   }
 }

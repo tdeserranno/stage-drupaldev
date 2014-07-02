@@ -9,6 +9,7 @@
  */
 //Custom FILE_EXISTS, defined more for the ability to change possible multiple occurences from 1 location.
 define('CONTENTIMPORT_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
+define('CONTENTIMPORT_IMG_FILE_REGEX', '/\w+\.(jpg|png|jpeg|gif)$/');
 
 /**
  * Implements hook_help().
@@ -248,6 +249,7 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
 
 /**
  * Custom function : handle field type image import.
+ * 
  */
 function _contentimport_prepare_images($import_row, $field, $language, $images_location) {
   $new_images = array();
@@ -256,16 +258,17 @@ function _contentimport_prepare_images($import_row, $field, $language, $images_l
     // Cycle through field array.
     foreach ($import_row[$field][$language] as $import_image) {
       // Build path to import file.
-      // ! what happens with multiple image field types?? 
+      // ! what happens with multiple image field types with different file locations ?? 
       $pattern = 'public://field/image/';
       $replacement = rtrim($images_location, '/');
       $replacement = $replacement . '/';
       $import_uri = str_replace($pattern, $replacement, $import_image['uri']);
 
-      // Check/create destination directory.
+      
       // Cut filename off of file uri.
-      $pattern = '/\/\w+\.[a-z]{3,4}$/';
-      $directory = preg_replace($pattern, '', $import_image['uri']);
+      $regex = CONTENTIMPORT_IMG_FILE_REGEX;
+      $directory = preg_replace($regex, '', $import_image['uri']);
+      // Check writable/Create destination directory.
       if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
         drupal_set_message(t('Failed to create destination directory %directory, or is not writable.', array('%directory' => $directory)), 'error');
       }
@@ -273,7 +276,6 @@ function _contentimport_prepare_images($import_row, $field, $language, $images_l
         // Open import file and save as managed file.
         $file_data = file_get_contents($import_uri);
         $destination = $import_image['uri'];
-        // CHANGE BACK TO FILE EXISTS RENAME !!!
         $file = file_save_data($file_data, $destination, CONTENTIMPORT_FILE_SAVE_BEHAVIOR);
 
         // Convert stdClass to assoc array.
@@ -302,7 +304,7 @@ function _contentimport_prepare_taxonomy($import_row, $field, $language, $vocabu
   // Check if the field array isn't empty
   if (isset($import_row[$field][$language]) && !empty($import_row[$field][$language])) {
     // Cycle through field array.
-    dpm($import_row[$field][$language]);
+//    dpm($import_row[$field][$language]);
     foreach ($import_row[$field][$language] as $row_term) {
       // Check if term exists.
       $matching_terms = taxonomy_get_term_by_name($row_term['name'], $row_term['vocabulary_machine_name']);
@@ -432,7 +434,7 @@ function _contentimport_check_requirements($json_data, $files_location) {
         // If images are used, check if export folder isn't empty.
         if ($requirements['images']) {
           // Scan images_location.
-          $regex = '/\w+\.(jpg|png|jpeg|gif)$/';
+          $regex = CONTENTIMPORT_IMG_FILE_REGEX;
           $options = array('recurse' => TRUE);
           $images = file_scan_directory($requirements['images_location'], $regex, $options);
 //        dpm($images);
