@@ -177,19 +177,26 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
       throw new Exception(t('Failed to save the file.'));
     }
 
-    // Copy node images.
     $image_counter = 0;
+    // Cycle through all nodes
     foreach ($nodes as $node) {
-      if (isset($node->field_image['und']) && !empty($node->field_image['und'])) {
-        foreach ($node->field_image['und'] as $image) {
-          if (isset($image['uri']) && !empty($image['uri'])) {
-            if (!file_unmanaged_copy($image['uri'], $images_directory, CONTENTEXPORT_FILE_SAVE_BEHAVIOR)) {
-              $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
-            }
-            else {
-              $image_counter++;
-              // Test copy errors
+      // For each image field type.
+      foreach ($fields as $field) {
+        if ($field['type'] === 'image') {
+          // Check if there are images for the field in the node
+          if (isset($node->{$field['field_name']}['und']) && !empty($node->{$field['field_name']}['und'])) {
+            // Copy each image
+            foreach ($node->{$field['field_name']}['und'] as $image) {
+              if (isset($image['uri']) && !empty($image['uri'])) {
+                if (!file_unmanaged_copy($image['uri'], $images_directory, CONTENTEXPORT_FILE_SAVE_BEHAVIOR)) {
+                  $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
+                }
+                else {
+                  $image_counter++;
+                  // Test copy errors
 //              $errors[] = t('Copy error test %picture', array('%picture' => $image['uri']));
+                }
+              }
             }
           }
         }
