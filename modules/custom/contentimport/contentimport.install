@@ -1,0 +1,26 @@
+<?php
+/**
+ * @file
+ * .install file for contentimport module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function contentimport_schema() {
+  $schema['contentimport_remember'] = array(
+    'description' => 'Saves streamwrapper strings of import locations to ignore import warnings.',
+    'fields' => array(
+      'import_location' => array(
+        'description' => 'The streamwrapper uri of the location of the import files',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('import_location'),
+  );
+  
+  return $schema;
+}

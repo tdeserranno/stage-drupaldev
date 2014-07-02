@@ -125,8 +125,9 @@ function _contentimport_begin_import($files_location) {
     drupal_goto('import/locate-files');
   }
   else {
-    $warnings = array();
     // Content type is available, continue import.
+    $warnings = array();
+    $warnings['files_location'] = $files_location;
     // Check missing fields
     if (!empty($requirements['missing_fields'])) {
       foreach ($requirements['missing_fields'] as $missing_field) {
@@ -150,10 +151,26 @@ function _contentimport_begin_import($files_location) {
 
     // If warnings not empty go to warnings form, otherwise continue import
     if (!empty($warnings)) {
-      // Store warnings in SESSION
-      $_SESSION['contentimport']['warnings'] = $warnings;
-      // Go to warnings page.
-      drupal_goto('import/warnings');
+      // Check contentimport_remember table if warnings for this import location need to be ignored.
+      $query = db_select('contentimport_remember', 'cir')
+          ->fields('cir', array('import_location'))
+          ->condition('import_location', $warnings['files_location'])
+          ->range(0, 1);
+      $ignore_location = $query->execute()->fetchCol();
+
+      // Check if warnings need to be ignored.
+      if (empty($ignore_location)) {
+        // Store variables in SESSION
+        $_SESSION['contentimport']['warnings'] = $warnings;
+        $_SESSION['contentimport']['json_data'] = $json_data;
+        $_SESSION['contentimport']['requirements'] = $requirements;
+        // Go to warnings page.
+        drupal_goto('import/warnings');
+      }
+      else {
+        // Ignore warnings and continue import.
+        _contentimport_import($json_data, $requirements);
+      }
     }
     else {
       // Continue import
@@ -218,8 +235,11 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
           switch ($field['field_name']) {
             case 'field_image':
               // ! enclose dynamic property names in {}
-              $new_node->{$field['field_name']}[$new_node->language] = 
-                _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
+              $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
+              break;
+            case 'field_thumbnail':
+              // ! enclose dynamic property names in {}
+              $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
               break;
 
             default:
@@ -229,8 +249,7 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
           break;
         case 'taxonomy_term_reference':
           // ! enclose dynamic property names in {}
-          $new_node->{$field['field_name']}[$new_node->language] = 
-            _contentimport_prepare_taxonomy($import_row, $field['field_name'], $new_node->language, $vocabularies);
+          $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_taxonomy($import_row, $field['field_name'], $new_node->language, $vocabularies);
           break;
 
         default:
@@ -258,13 +277,12 @@ function _contentimport_prepare_images($import_row, $field, $language, $images_l
     // Cycle through field array.
     foreach ($import_row[$field][$language] as $import_image) {
       // Build path to import file.
-      // ! what happens with multiple image field types with different file locations ?? 
-      $pattern = 'public://field/image/';
+      $pattern = 'public://' . str_replace('_', '/', $field);
       $replacement = rtrim($images_location, '/');
       $replacement = $replacement . '/';
       $import_uri = str_replace($pattern, $replacement, $import_image['uri']);
 
-      
+
       // Cut filename off of file uri.
       $regex = CONTENTIMPORT_IMG_FILE_REGEX;
       $directory = preg_replace($regex, '', $import_image['uri']);
@@ -379,6 +397,10 @@ function _contentimport_get_vocabulary_id($vocabularies, $search_machine_name) {
  */
 function _contentimport_check_requirements($json_data, $files_location) {
   $requirements = array();
+  // Flags default values
+  $requirements['images'] = FALSE;
+  $requirements['images_location'] = FALSE;
+  $requirements['image_files'] = FALSE;
 
   // Cycle through JSON data.
   foreach ($json_data as $json_row) {
@@ -389,8 +411,9 @@ function _contentimport_check_requirements($json_data, $files_location) {
     }
 
     // Following checks should not happen if content type was not found.
-    if ($requirements['content_type'] !== FALSE) {
-      // Check missing fields, stop checking if already set.
+    if (isset($requirements['content_type']) && $requirements['content_type'] !== FALSE) {
+      // Check missing fields. Fields are dependent on content type. As the export is of one content type only,
+      // it should get set on the first cycle and no further rechecking is needed.
       if (!isset($requirements['missing_fields'])) {
         // Get fields of content type.
         $requirements['fields'] = field_read_fields(array(
@@ -422,10 +445,7 @@ function _contentimport_check_requirements($json_data, $files_location) {
 
       // Check for image folder @ files location.
       $images_location = rtrim($files_location, '/') . '/image';
-      if (!is_dir($images_location)) {
-        $requirements['images_location'] = FALSE;
-      }
-      else {
+      if (is_dir($images_location)) {
         $requirements['images_location'] = $images_location;
       }
 
@@ -442,9 +462,6 @@ function _contentimport_check_requirements($json_data, $files_location) {
           if (!empty($images)) {
             $requirements['image_files'] = TRUE;
           }
-          else {
-            $requirements['image_files'] = FALSE;
-          }
         }
       }
     }
@@ -458,10 +475,14 @@ function _contentimport_check_requirements($json_data, $files_location) {
  * Custom function : create render array for warnings page + form
  */
 function _contentimport_warning_page() {
-  // Get warnings from SESSION
+  // Get variables from SESSION
   if (isset($_SESSION['contentimport']['warnings'])) {
     $warnings = $_SESSION['contentimport']['warnings'];
-    unset($_SESSION['contentimport']['warnings']);
+//    unset($_SESSION['contentimport']['warnings']);
+    $json_data = $_SESSION['contentimport']['json_data'];
+//    unset($_SESSION['contentimport']['json_data']);
+    $requirements = $_SESSION['contentimport']['requirements'];
+//    unset($_SESSION['contentimport']['requirements']);
 
     $render_array = array();
 
@@ -487,7 +508,7 @@ function _contentimport_warning_page() {
     }
 
     // Form.
-    $render_array['form'] = drupal_get_form('contentimport_warning_form');
+    $render_array['form'] = drupal_get_form('contentimport_warning_form', $warnings['files_location'], $json_data, $requirements);
 
     return $render_array;
   }
@@ -502,6 +523,12 @@ function _contentimport_warning_page() {
  * Form builder : import warning form.
  */
 function contentimport_warning_form($form, &$form_state) {
+  // Store files location for use in submit handler.
+  $form_state['storage']['files_location'] = $form_state['build_info']['args'][0];
+  $form_state['storage']['json_data'] = $form_state['build_info']['args'][1];
+  $form_state['storage']['requirements'] = $form_state['build_info']['args'][2];
+  
+  // Build form.
   $form['remember_choice'] = array(
     '#type' => 'checkbox',
     '#title' => t('Remember your choice for future imports from this file location?'),
@@ -511,6 +538,32 @@ function contentimport_warning_form($form, &$form_state) {
   $question = t('Are you sure you want to continue the import despite these warnings?');
   $path = 'import/locate-files';
   return confirm_form($form, $question, $path);
+}
+
+/**
+ * Form submit : contentimport_warning_form.
+ */
+function contentimport_warning_form_submit($form, &$form_state) {
+  // Get variables from storage
+  $import_location = $form_state['storage']['files_location'];
+  $json_data = $form_state['storage']['json_data'];
+  $requirements = $form_state['storage']['requirements'];
+
+  // Check if checkbox was checked.
+  if ($form_state['values']['remember_choice'] == TRUE) {
+    // Add entry in contentimport_remember table
+    $query = db_insert('contentimport_remember')
+        ->fields(array(
+          'import_location' => $import_location,
+        ))
+        ->execute();
+  }
+  
+  // Continu import.
+  _contentimport_import($json_data, $requirements);
+  
+  // Redirect to import form.
+  $form_state['redirect'] = 'import/locate-files';
 }
 
 /**
