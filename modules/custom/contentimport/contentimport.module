@@ -24,7 +24,7 @@ function contentimport_help($path, $args) {
  * Implements hook_menu().
  */
 function contentimport_menu() {
-  $items['import/locate-files'] = array(
+  $items['admin/import/locate-files'] = array(
     'title' => 'Import content',
     'description' => 'Specify the location of the import files.',
     'page callback' => 'drupal_get_form',
@@ -32,7 +32,7 @@ function contentimport_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
-  $items['import/warnings'] = array(
+  $items['admin/import/warnings'] = array(
     'title' => 'Import warnings',
     'page callback' => '_contentimport_warning_page',
     'access arguments' => array('access administration pages'),
@@ -73,7 +73,7 @@ function contentimport_fileslocation_form_submit($form, &$form_state) {
   _contentimport_begin_import($form_state['values']['files_location']);
 
   // Redirect to import form.
-  $form_state['redirect'] = 'import/locate-files';
+  $form_state['redirect'] = 'admin/import/locate-files';
 }
 
 /**
@@ -122,7 +122,7 @@ function _contentimport_begin_import($files_location) {
   if ($requirements['content_type'] === FALSE) {
     // Content type is not available, halt import.
     drupal_set_message(t('The content type that you are attempting to import is not available on this site.'), 'error');
-    drupal_goto('import/locate-files');
+    drupal_goto('admin/import/locate-files');
   }
   else {
     // Content type is available, continue import.
@@ -132,11 +132,10 @@ function _contentimport_begin_import($files_location) {
     if (!empty($requirements['missing_fields'])) {
       foreach ($requirements['missing_fields'] as $missing_field) {
         $warnings['missing_fields'][$missing_field] = t(
-            'The field %field is present in the import data but not available for %contenttype content type on this site.',
-            array(
-              '%field' => $missing_field,
-              '%contenttype' => $requirements['content_type']->type,
-              ));
+            'The field %field is present in the import data but not available for %contenttype content type on this site.', array(
+          '%field' => $missing_field,
+          '%contenttype' => $requirements['content_type']->type,
+        ));
       }
     }
 
@@ -170,7 +169,7 @@ function _contentimport_begin_import($files_location) {
         $_SESSION['contentimport']['json_data'] = $json_data;
         $_SESSION['contentimport']['requirements'] = $requirements;
         // Go to warnings page.
-        drupal_goto('import/warnings');
+        drupal_goto('admin/import/warnings');
       }
       else {
         // Ignore warnings and continue import.
@@ -292,12 +291,12 @@ function _contentimport_prepare_images($import_row, $field_name, $language, $ima
       // Cut filename off of original image file uri.
       $regex = CONTENTIMPORT_IMG_FILE_REGEX;
       $directory = preg_replace($regex, '', $import_image['uri']);
-      
+
       // Stick it on images_location
       $replacement = rtrim($images_location, '/');
       $replacement .= '/';
       $import_uri = str_replace($directory, $replacement, $import_image['uri']);
-      
+
       // Check writable/Create destination directory.
       if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
         drupal_set_message(t('Failed to create destination directory %directory, or is not writable.', array('%directory' => $directory)), 'error');
@@ -429,11 +428,17 @@ function _contentimport_check_requirements($json_data, $files_location) {
       // Check missing fields. Fields are dependent on content type. As the export is of one content type only,
       // it should get set on the first cycle and no further rechecking is needed.
       if (!isset($requirements['missing_fields'])) {
-        // Get fields of content type.
-        $requirements['fields'] = field_read_fields(array(
-          'entity_type' => 'node',
-          'bundle' => $requirements['content_type']->type,
-        ));
+        // Get fieldinfo for fields of content type.
+        $node_fields = field_info_instances('node', $node_type);
+        foreach ($node_fields as $field_name => $field) {
+          $fields[$field_name] = field_info_field($field['field_name']);
+        }
+        $requirements['fields'] = $fields;
+        // Only trustworthy for drupal 7.22 or above
+//        $requirements['fields'] = field_read_fields(array(
+//          'entity_type' => 'node',
+//          'bundle' => $requirements['content_type']->type,
+//        ));
 //      dpm($fields);
         // Determine what custom fields are present in json data.
         $json_row_keys = array_keys($json_row);
@@ -527,7 +532,7 @@ function _contentimport_warning_page() {
   else {
     // Warnings not set in SESSION, something went terribly wrong here ...
     drupal_set_message(t('Warnings page was called but no warnings were stored in session. Import was halted.'), 'error');
-    drupal_goto('import/locate-files');
+    drupal_goto('admin/import/locate-files');
   }
 }
 
@@ -577,7 +582,7 @@ function contentimport_warning_form_submit($form, &$form_state) {
   _contentimport_import($json_data, $requirements);
 
   // Redirect to import form.
-  $form_state['redirect'] = 'import/locate-files';
+  $form_state['redirect'] = 'admin/import/locate-files';
 }
 
 /**

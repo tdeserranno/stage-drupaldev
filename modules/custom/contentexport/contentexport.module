@@ -24,9 +24,9 @@ function contentexport_help($path, $args) {
  * Implements hook_menu().
  */
 function contentexport_menu() {
-  $items['export/select'] = array(
+  $items['admin/export/select'] = array(
     'title' => 'Export content',
-    'description' => 'Export content',
+    'description' => 'Export a content type',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('contentexport_form'),
     'access arguments' => array('access administration pages'),
@@ -48,12 +48,13 @@ function contentexport_form($form, &$form_state) {
 
   $form['content_type'] = array(
     '#title' => t('Select content type'),
+    '#description' => t('Select the content type you wish to export.'),
     '#type' => 'select',
     '#options' => $options,
   );
   $form['submit'] = array(
     '#type' => 'submit',
-    '#value' => t('Submit'),
+    '#value' => t('Export'),
   );
 
   return $form;
@@ -65,20 +66,27 @@ function contentexport_form($form, &$form_state) {
 function contentexport_form_submit($form, &$form_state) {
   $node_type = $form_state['values']['content_type'];
 
-  // Get fields for node_type.
-  $fields = field_read_fields(array(
-    'entity_type' => 'node',
-    'bundle' => $node_type,
-  ));
+  // Get fieldinfo for fields of node_type.
+  $node_fields = field_info_instances('node', $node_type);
+  foreach ($node_fields as $field_name => $field) {
+    $fields[$field_name] = field_info_field($field['field_name']);
+  }
+  // Only trustworthy for drupal 7.22 or above
+//  $fields = field_read_fields(array(
+//    'entity_type' => 'node',
+//    'bundle' => $node_type,
+//  ));
   // Filter out fields that don't need to be checked.
-  unset($fields['body']);
+  if (isset($fields['body'])) {
+    unset($fields['body']);
+  }
 
   // Load nodes.
   $nodes = _contentexport_get_nodes($node_type, $fields);
 
   // Export nodes.
   if (!empty($nodes)) {
-    dpm($nodes);
+//    dpm($nodes);
     _export_nodes_json_unmanaged($nodes, $fields);
   }
 }
@@ -97,8 +105,7 @@ function _contentexport_get_nodes($node_type, $fields) {
   // Load nodes.
   if (!empty($nids)) {
     $nodes = node_load_multiple($nids);
-    dpm($nodes);
-
+//    dpm($nodes);
     // Create array of field names to test node properties against.
     $field_names = array_keys($fields);
 
@@ -137,7 +144,7 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
   if (empty($nodes)) {
     // Inform user.
     drupal_set_message(t('Nothing to export.'), 'error');
-//    drupal_goto('<front>');
+//    drupal_goto('admin/export/select');
     return;
   }
 
@@ -220,7 +227,7 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
     }
 
     // Redirect to front.
-    drupal_goto('<front>');
+    drupal_goto('admin/export/select');
   }
   catch (Exception $exc) {
     // Add exception to errors.
@@ -230,7 +237,7 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
     _contentexport_log_errors($errors, $exc);
 
     // Redirect to front.
-    drupal_goto('<front>');
+    drupal_goto('admin/export/select');
   }
 }
 
