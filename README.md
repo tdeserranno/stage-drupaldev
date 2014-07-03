@@ -21,3 +21,11 @@ JSON export of all nodes of a given node type (selected via provided form).
 ####contentimport (work in progress)
 ***
 Import functionality for contentexport module.
+
+#Fixes
+####03/07/2014
+**Modules:**    contentexport, contentimport
+
+**Problem:**    `field_read_fields()` function problem as described [here](https://www.drupal.org/node/1927588).
+
+**Solution:**   To provide support for Drupal versions below 7.22 the field info is now being retrieved by a combination of the `field_info_instances()` and `field_info_field()` functions.
