@@ -155,6 +155,8 @@ function _contentexport_get_nodes($node_type, $fields) {
           }
         }
       }
+      // Load url alias for each node.
+      $node->url_alias = drupal_get_path_alias('node/' . $node->nid, $node->language);
     }
   }
 
