@@ -29,3 +29,10 @@ Import functionality for contentexport module.
 **Problem:**    `field_read_fields()` function problem as described [here](https://www.drupal.org/node/1927588).
 
 **Solution:**   To provide support for Drupal versions below 7.22 the field info is now being retrieved by a combination of the `field_info_instances()` and `field_info_field()` functions.
+
+####04/07/2014
+**Modules:**	contentexport
+
+**Fixes:**	Taxonomy loading of a tid that doesn't exist was not handled correctly. Now when attempting to load a non-existing tid, the array element is set to NULL.
+
+**Changes:**	Changed image file copy to copy to subdirectories instead of all into 1 directory. Subdirectories are based on original file uri.
