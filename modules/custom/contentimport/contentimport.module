@@ -429,7 +429,7 @@ function _contentimport_check_requirements($json_data, $files_location) {
       // it should get set on the first cycle and no further rechecking is needed.
       if (!isset($requirements['missing_fields'])) {
         // Get fieldinfo for fields of content type.
-        $node_fields = field_info_instances('node', $node_type);
+        $node_fields = field_info_instances('node', $requirements['content_type']->type);
         foreach ($node_fields as $field_name => $field) {
           $fields[$field_name] = field_info_field($field['field_name']);
         }

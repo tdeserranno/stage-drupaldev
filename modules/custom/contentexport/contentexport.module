@@ -71,6 +71,7 @@ function contentexport_form_submit($form, &$form_state) {
   foreach ($node_fields as $field_name => $field) {
     $fields[$field_name] = field_info_field($field['field_name']);
   }
+  dpm($fields, 'fields');
   // Only trustworthy for drupal 7.22 or above
 //  $fields = field_read_fields(array(
 //    'entity_type' => 'node',
@@ -105,7 +106,7 @@ function _contentexport_get_nodes($node_type, $fields) {
   // Load nodes.
   if (!empty($nids)) {
     $nodes = node_load_multiple($nids);
-//    dpm($nodes);
+
     // Create array of field names to test node properties against.
     $field_names = array_keys($fields);
 
@@ -115,16 +116,40 @@ function _contentexport_get_nodes($node_type, $fields) {
       // Cycle through each node property.
       foreach ($node as $property_name => &$property) {
         // Find the field properties.
-//        $fieldname_regex = '/^field_[a-z]*$/';
         if (in_array($property_name, $field_names)) {
           // Load the field info for the field.
           $field_info = $fields[$property_name];
-//        dpm($field_info);
           // If the field is a taxonomy term reference, load the term.
           if ($field_info['type'] === 'taxonomy_term_reference') {
-            if (isset($property['und']) && !empty($property['und'])) {
-              foreach ($property['und'] as &$term) {
-                $term = taxonomy_term_load($term['tid']);
+//            dpm($field_info);
+            // Build languages array.
+            $languages = array_keys($property);
+//            $languages = array('und');
+//            if (isset($node->language) && !empty($node->language)) {
+//              $languages[] = $node->language;
+//            }
+            // Check taxonomies for each languages
+            foreach ($languages as $language) {
+              if (isset($property[$language]) && !empty($property[$language])) {
+                foreach ($property[$language] as &$term) {
+                  $term_data = taxonomy_term_load($term['tid']);
+                  if ($term_data !== FALSE) {
+                    $term = $term_data;
+                  }
+                  else {
+                    $term = NULL;
+                  }
+                }
+                // Unset array if empty, possible when all terms failed to load
+                $empty = TRUE;
+                foreach ($property[$language] as $term) {
+                  if ($term !== NULL) {
+                    $empty = FALSE;
+                  }
+                }
+                if ($empty) {
+                  unset($property[$language]);
+                }
               }
             }
           }
@@ -132,6 +157,8 @@ function _contentexport_get_nodes($node_type, $fields) {
       }
     }
   }
+
+  dpm($nodes);
 
   return $nodes;
 }
@@ -190,18 +217,22 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
       // For each image field type.
       foreach ($fields as $field) {
         if ($field['type'] === 'image') {
-          // Check if there are images for the field in the node
-          if (isset($node->{$field['field_name']}['und']) && !empty($node->{$field['field_name']}['und'])) {
-            // Copy each image
-            foreach ($node->{$field['field_name']}['und'] as $image) {
-              if (isset($image['uri']) && !empty($image['uri'])) {
-                if (!file_unmanaged_copy($image['uri'], $images_directory, CONTENTEXPORT_FILE_SAVE_BEHAVIOR)) {
-                  $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
-                }
-                else {
-                  $image_counter++;
-                  // Test copy errors
+          // Check if there are images for the field in the node for each language
+          if (isset($node->{$field['field_name']}) && !empty($node->{$field['field_name']})) {
+            // Get languages
+            $languages = array_keys($node->{$field['field_name']});
+            foreach ($languages as $language) {
+              // Copy each image
+              foreach ($node->{$field['field_name']}[$language] as $image) {
+                if (isset($image['uri']) && !empty($image['uri'])) {
+                  if (!file_unmanaged_copy($image['uri'], $images_directory, CONTENTEXPORT_FILE_SAVE_BEHAVIOR)) {
+                    $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
+                  }
+                  else {
+                    $image_counter++;
+                    // Test copy errors
 //              $errors[] = t('Copy error test %picture', array('%picture' => $image['uri']));
+                  }
                 }
               }
             }
