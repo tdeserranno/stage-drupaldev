@@ -1,7 +1,7 @@
-#Version information
+###Version information
 Drupal version = 7.28
 
-#Modules
+###Modules
 #####1. usersearch
 status: working, export may need revision
 
@@ -29,7 +29,7 @@ status: work in progress, needs to be changed to reflect latest changes in conte
 
 Import functionality for contentexport module.
 
-#Fixes
+###Fixes
 ####03/07/2014
 **Modules:**    contentexport, contentimport
 
