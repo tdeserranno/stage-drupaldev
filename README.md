@@ -36,3 +36,10 @@ Import functionality for contentexport module.
 **Fixes:**	Taxonomy loading of a tid that doesn't exist was not handled correctly. Now when attempting to load a non-existing tid, the array element is set to NULL.
 
 **Changes:**	Changed image file copy to copy to subdirectories instead of all into 1 directory. Subdirectories are based on original file uri.
+
+####07/07/2014
+**Modules:** contentexport
+
+**Addition:** 	additional menu info (menu name, parent id) now provided
+
+**Changes:** 	code reviewed and rewritten based on feedback
