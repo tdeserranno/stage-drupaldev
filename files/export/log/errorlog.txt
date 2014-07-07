@@ -1,5 +1,0 @@
-26-06-2014 10:34:17 : Copy error test <em class="placeholder">public://field/image/imagefield_hSSqsF.jpeg</em>
-26-06-2014 10:34:17 : Copy error test <em class="placeholder">public://field/image/imagefield_w5y24j.jpg</em>
-26-06-2014 10:34:17 : Copy error test <em class="placeholder">public://field/image/imagefield_NXgZJY.jpeg</em>
-26-06-2014 10:34:17 : Copy error test <em class="placeholder">public://field/image/imagefield_N7OzrD.gif</em>
-26-06-2014 10:34:17 : Copy error test <em class="placeholder">public://field/image/imagefield_5dXybi.gif</em>
