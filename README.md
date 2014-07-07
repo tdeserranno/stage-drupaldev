@@ -19,7 +19,10 @@ Import functionality to import users exported by usersearch JSON export
 status: working
 
 JSON export of all nodes of a given node type (selected via provided form).
-Data and files are exported to a location on the server itself (public://export/). A new directory is generated for each export (content type) each day (public://export/article\_07-07-2014). Images are copied into subfolders based on their original directory tree under a main image directory (public://export/article\_07-07-2014/image/field/thumbnail).
+
+Data and files are exported to a location on the server itself (public://export/).
+A new directory is generated for each export (content type) each day (public://export/article\_07-07-2014).
+Images are copied into subfolders based on their original directory tree under a main image directory (public://export/article\_07-07-2014/image/field/thumbnail).
 
 #####4. contentimport
 status: work in progress, needs to be changed to reflect latest changes in contentimport module.
