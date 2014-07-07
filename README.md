@@ -2,24 +2,28 @@
 Drupal version = 7.28
 
 #Modules
-####usersearch (working, export may need revision)
-***
-1. Search: 
-    The module provides a page where you can search for users of a Drupal site by username and/or mail address.
+#####1. usersearch
+status: working, export may need revision
 
-2. Export: 
-    The module also provides an export of all users (except uid 1) to either a CSV file download, without pictures or to an     exportfolder on the server itself with a JSON file together with a folder containing the profile pictures of the users.
+The module provides a page where you can search for users of a Drupal site by username and/or mail address.
+    
+The module also provides an export of all users (except uid 1) to either a CSV file download, without pictures or to an exportfolder on the server itself with a JSON file together with a folder containing the profile pictures of the users.
 
-####usersearch_import (working, import may need revision)
-***
-Import functionality to import users exported by usersearch JSON export (export files need to be contained in a zip file.
+#####2. usersearch_import
+status: working, import may need revision
 
-####contentexport (work in progress)
-***
+Import functionality to import users exported by usersearch JSON export
+(export files need to be contained in a zip file)
+
+#####3. contentexport
+status: working
+
 JSON export of all nodes of a given node type (selected via provided form).
+Data and files are exported to a location on the server itself (public://export/). A new directory is generated for each export (content type) each day (public://export/article\_07-07-2014). Images are copied into subfolders based on their original directory tree under a main image directory (public://export/article\_07-07-2014/image/field/thumbnail).
 
-####contentimport (work in progress)
-***
+#####4. contentimport
+status: work in progress, needs to be changed to reflect latest changes in contentimport module.
+
 Import functionality for contentexport module.
 
 #Fixes
