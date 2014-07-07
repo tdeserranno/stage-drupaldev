@@ -87,7 +87,7 @@ function contentexport_form_submit($form, &$form_state) {
 
   // Export nodes.
   if (!empty($nodes)) {
-//    dpm($nodes);
+    dpm($nodes, 'nodes to export');
     _export_nodes_json_unmanaged($nodes, $fields);
   }
 }
@@ -159,11 +159,11 @@ function _contentexport_get_nodes($node_type, $fields) {
 ////where link_path like :node_pattern
 ////and plid = :noparent', array(':node_pattern' => 'node/%',':noparent' => 0, ':noparent_linkpath' => 'none'));
   
-//  dpm($noparent_result);
-//  dpm($parent_result);
+//  dpm($noparent_result, 'query result menulinks plid=0');
+//  dpm($parent_result, 'query result menulinks plid!=0');
   // Merge results.
   $menudata = array_merge($noparent_result, $parent_result);
-  dpm($menudata);
+  dpm($menudata, 'merged query results menulinks');
   
       
 
@@ -185,7 +185,7 @@ function _contentexport_get_nodes($node_type, $fields) {
           $field_info = $fields[$property_name];
           // If the field is a taxonomy term reference, load the term.
           if ($field_info['type'] === 'taxonomy_term_reference') {
-//            dpm($field_info);
+//            dpm($field_info, 'field info');
             // Build languages array.
             $languages = array_keys($property);
 //            $languages = array('und');
@@ -228,8 +228,6 @@ function _contentexport_get_nodes($node_type, $fields) {
     }
   }
 
-  dpm($nodes);
-
   return $nodes;
 }
 
@@ -247,7 +245,7 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
 
   // Build data array.
   $file_data = drupal_json_encode($nodes);
-//  dpm($file_data);
+//  dpm($file_data, 'json data');
   // Attempt export.
   $errors = array();
   try {
@@ -296,10 +294,11 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
               foreach ($node->{$field['field_name']}[$language] as $image) {
                 if (isset($image['uri']) && !empty($image['uri'])) {
                   // Check image field directory
-                  // Cut filename off of original image file uri.
+                  // Isolate directories in image uri
                   $regex = '/^public:\/\/(.+\/)+/';
                   preg_match($regex, $image['uri'], $match);
-//                  dpm($match);
+//                  dpm($match, 'regex match original image uri');
+                  // Build destination directory uri 
                   if (isset($match)) {
                     unset($match[0]);
                     $image_field_directory = $images_directory . '/';
@@ -309,10 +308,11 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
                   } else {
                     $image_field_directory = $images_directory . '/' . 'images';
                   }
-                  
+                  // Check/Create destination directory
                   if (!file_prepare_directory($image_field_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
                     $errors[] = t('Failed to create %directory.', array('%directory' => $image_field_directory));
                   }
+                  // Copy file to destination
                   if (!file_unmanaged_copy($image['uri'], $image_field_directory, CONTENTEXPORT_FILE_SAVE_BEHAVIOR)) {
                     $errors[] = t('Failed to copy %picture', array('%picture' => $image['uri']));
                   }
