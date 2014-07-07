@@ -300,8 +300,11 @@ function _export_nodes_json_unmanaged(array $nodes, $fields) {
 //                  dpm($match, 'regex match original image uri');
                   // Build destination directory uri 
                   if (isset($match)) {
+                    // Get rid off full matching text
                     unset($match[0]);
+                    // Set start of destination uri
                     $image_field_directory = $images_directory . '/';
+                    // Append each matchpart to destination
                     foreach ($match as $match_part) {
                       $image_field_directory .= $match_part;
                     }
