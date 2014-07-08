@@ -9,7 +9,8 @@
  */
 //Custom FILE_EXISTS, defined more for the ability to change possible multiple occurences from 1 location.
 define('CONTENTIMPORT_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
-define('CONTENTIMPORT_IMG_FILE_REGEX', '/\w+\.(jpg|png|jpeg|gif)$/');
+define('CONTENTIMPORT_IMG_FILE_REGEX', '/[\w\s\-]+\.(jpg|png|jpeg|gif)$/');
+define('CONTENTIMPORT_JSON_FILE_REGEX', '/[\w\s\-]+\.json$/');
 
 /**
  * Implements hook_help().
@@ -86,7 +87,8 @@ function contentimport_fileslocation_form_validate($form, &$form_state) {
 
   // Check if files location exists.
   if (!is_dir($files_location)) {
-    form_set_error('files_location', t('The specified location %location does not exist or is not a directory.', array('%location' => $files_location)));
+    form_set_error(
+        'files_location', t('The specified location %location does not exist or is not a directory.', array('%location' => $files_location)));
   }
 }
 
@@ -95,10 +97,9 @@ function contentimport_fileslocation_form_validate($form, &$form_state) {
  */
 function _contentimport_begin_import($files_location) {
   // Check for JSON file.
-  $regex = '/\w+\.json$/';
   $options = array('recurse' => TRUE);
-  $json_files = file_scan_directory($files_location, $regex, $options);
-//  dpm($json_file);
+  $json_files = file_scan_directory($files_location, CONTENTIMPORT_JSON_FILE_REGEX, $options);
+//  dpm($json_file, 'result of file scan for json file');
   if (!empty($json_files)) {
     if (count($json_files) > 1) {
       drupal_set_message('More than one JSON file found.', 'error');
@@ -114,72 +115,39 @@ function _contentimport_begin_import($files_location) {
   $json_file = array_shift($json_files);
   $json_data = file_get_contents($json_file->uri);
   $json_data = drupal_json_decode($json_data);
-//  dpm($json_data);
+//  dpm($json_data, 'decoded import data');
   // Check import site requirements.
-  $requirements = _contentimport_check_requirements($json_data, $files_location);
-//  dpm($requirements);
+  $requirements = _contentimport_generate_requirements($json_data, $files_location);
+
   // Evaluate requirements and take appropriate action.
-  if ($requirements['content_type'] === FALSE) {
-    // Content type is not available, halt import.
-    drupal_set_message(t('The content type that you are attempting to import is not available on this site.'), 'error');
-    drupal_goto('admin/import/locate-files');
-  }
-  else {
-    // Content type is available, continue import.
-    $warnings = array();
+  $warnings = _contentimport_evaluate_requirements($requirements);
+  // If warnings not empty go to warnings form, otherwise continue import
+  if (!empty($warnings)) {
+    // Query contentimport_remember table for this import location.
+    $query = db_select('contentimport_remember', 'cir')
+        ->fields('cir', array('import_location'))
+        ->condition('import_location', $files_location)
+        ->range(0, 1);
+    $ignore_location = $query->execute()->fetchCol();
 
-    // Check missing fields
-    if (!empty($requirements['missing_fields'])) {
-      foreach ($requirements['missing_fields'] as $missing_field) {
-        $warnings['missing_fields'][$missing_field] = t(
-            'The field %field is present in the import data but not available for %contenttype content type on this site.', array(
-          '%field' => $missing_field,
-          '%contenttype' => $requirements['content_type']->type,
-        ));
-      }
-    }
-
-    // Check if images are used.
-    if ($requirements['images'] === TRUE) {
-      // Check if images location is valid.
-      if ($requirements['images_location'] === FALSE) {
-        $warnings['images_location'] = t(
-            'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
-      }
-      elseif ($requirements['image_files'] === FALSE) {
-        $warnings['image_files'] = t(
-            'There are images present in the import data but the image folder does not contain any image files.');
-      }
-    }
-
-    // If warnings not empty go to warnings form, otherwise continue import
-    if (!empty($warnings)) {
-      // Check contentimport_remember table if warnings for this import location need to be ignored.
-      $query = db_select('contentimport_remember', 'cir')
-          ->fields('cir', array('import_location'))
-          ->condition('import_location', $files_location)
-          ->range(0, 1);
-      $ignore_location = $query->execute()->fetchCol();
-
-      // Check if warnings need to be ignored.
-      if (empty($ignore_location)) {
-        // Store variables in SESSION
-        $_SESSION['contentimport']['warnings'] = $warnings;
-        $_SESSION['contentimport']['files_location'] = $files_location;
-        $_SESSION['contentimport']['json_data'] = $json_data;
-        $_SESSION['contentimport']['requirements'] = $requirements;
-        // Go to warnings page.
-        drupal_goto('admin/import/warnings');
-      }
-      else {
-        // Ignore warnings and continue import.
-        _contentimport_import($json_data, $requirements);
-      }
+    // Check if warnings need to be ignored.
+    if (empty($ignore_location)) {
+      // Store variables in SESSION
+      $_SESSION['contentimport']['warnings'] = $warnings;
+      $_SESSION['contentimport']['files_location'] = $files_location;
+      $_SESSION['contentimport']['json_data'] = $json_data;
+      $_SESSION['contentimport']['requirements'] = $requirements;
+      // Go to warnings page.
+      drupal_goto('admin/import/warnings');
     }
     else {
-      // Continue import
+      // Ignore warnings and continue import.
       _contentimport_import($json_data, $requirements);
     }
+  }
+  else {
+    // Continue import
+    _contentimport_import($json_data, $requirements);
   }
 }
 
@@ -222,7 +190,13 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
     $new_node = new stdClass();
     $new_node->type = $import_row['type'];
     node_object_prepare($new_node);
-    $new_node->language = LANGUAGE_NONE;
+    // Taal koppelen van JSON data ?
+    if (isset($import_row['language']) && !empty($import_row['language'])) {
+      $new_node->language = $import_row['language'];
+    }
+    else {
+      $new_node->language = LANGUAGE_NONE;
+    }
     $new_node->title = $import_row['title'];
     $new_node->status = (boolean) $import_row['status'];
     $new_node->comment = (integer) $import_row['comment'];
@@ -232,15 +206,19 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
     $new_node->uid = $user->uid;
 
     // Filter fields that don't require special handling.
-    unset($requirements['fields']['body']);
+    if (isset($requirements['fields']['body'])) {
+      unset($requirements['fields']['body']);
+    }
+
     // Handle fields.
+    // ? Necessary to handle each language or only the language of the node ?
     foreach ($requirements['fields'] as $field) {
       // Nested switches because im not sure of what will happen when there are more than 1 of image type.
       // Also behavior of the export module is a factor, namely the location where the image files are copied to.
       // Therefor nesting switch to isolate each image type, giving the possibility to supply different
       // image_locations but requiring seperate handling for each field.
       // SUBJECT TO CHANGE IN THE FUTURE
-      dpm($field, 'field');
+      dpm($field, 'field being handled');
       switch ($field['type']) {
         case 'image':
           switch ($field['field_name']) {
@@ -272,14 +250,13 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
     // Submit node.
     $import_nodes[] = node_submit($new_node);
   }
-  dpm($import_nodes);
+  dpm($import_nodes, 'nodes to import');
 
   return $import_nodes;
 }
 
 /**
  * Custom function : handle field type image import.
- * 
  */
 function _contentimport_prepare_images($import_row, $field_name, $language, $images_location) {
   $new_images = array();
@@ -288,15 +265,15 @@ function _contentimport_prepare_images($import_row, $field_name, $language, $ima
     // Cycle through field array.
     foreach ($import_row[$field_name][$language] as $import_image) {
       // Build path to import file.
-      // Cut filename off of original image file uri.
-      $regex = CONTENTIMPORT_IMG_FILE_REGEX;
-      $directory = preg_replace($regex, '', $import_image['uri']);
-
-      // Stick it on images_location
-      $replacement = rtrim($images_location, '/');
-      $replacement .= '/';
-      $import_uri = str_replace($directory, $replacement, $import_image['uri']);
-
+      // ! NO LONGER VALID, DOES NOT ACCOUNT FOR SUBDIRECTORIES !
+//      // Cut filename off of original image file uri.
+//      $regex = CONTENTIMPORT_IMG_FILE_REGEX;
+//      $directory = preg_replace($regex, '', $import_image['uri']);
+//
+//      // Stick it on images_location
+//      $replacement = rtrim($images_location, '/');
+//      $replacement .= '/';
+//      $import_uri = str_replace($directory, $replacement, $import_image['uri']);
       // Check writable/Create destination directory.
       if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
         drupal_set_message(t('Failed to create destination directory %directory, or is not writable.', array('%directory' => $directory)), 'error');
@@ -307,7 +284,7 @@ function _contentimport_prepare_images($import_row, $field_name, $language, $ima
         $destination = $import_image['uri'];
         $file = file_save_data($file_data, $destination, CONTENTIMPORT_FILE_SAVE_BEHAVIOR);
 
-        // Convert stdClass to assoc array.
+        // Convert stdClass to associative array.
         $file = json_decode(json_encode($file), TRUE);
 
         // Add additional data.
@@ -333,7 +310,7 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
   // Check if the field array isn't empty
   if (isset($import_row[$field_name][$language]) && !empty($import_row[$field_name][$language])) {
     // Cycle through field array.
-//    dpm($import_row[$field_name][$language]);
+//    dpm($import_row[$field_name][$language], 'array of taxonomy terms to import');
     foreach ($import_row[$field_name][$language] as $row_term) {
       // Check if term exists.
       $matching_terms = taxonomy_get_term_by_name($row_term['name'], $row_term['vocabulary_machine_name']);
@@ -408,7 +385,7 @@ function _contentimport_get_vocabulary_id($vocabularies, $search_machine_name) {
 /**
  * Custom function : check requirements on import site.
  */
-function _contentimport_check_requirements($json_data, $files_location) {
+function _contentimport_generate_requirements($json_data, $files_location) {
   $requirements = array();
   // Flags default values
   $requirements['images'] = FALSE;
@@ -418,35 +395,22 @@ function _contentimport_check_requirements($json_data, $files_location) {
   // Cycle through JSON data.
   foreach ($json_data as $json_row) {
     // Check if content type exists if the flag has not been set already.
-    // As the export is for one content type only this should happen on the first cycle.
+    // As the export is for one content type only this should happen only on the first loop.
     if (!isset($requirements['content_type'])) {
       $requirements['content_type'] = node_type_get_type($json_row['type']);
     }
 
-    // Following checks should not happen if content type was not found.
+    // If the content type is not available the import should abort and therefor 
+    // the following checks do not need to be run.
     if (isset($requirements['content_type']) && $requirements['content_type'] !== FALSE) {
-      // Check missing fields. Fields are dependent on content type. As the export is of one content type only,
-      // it should get set on the first cycle and no further rechecking is needed.
+      // Get available fields. Fields are dependent on the available content type. 
+      // As the export is of one content type only, this only needs to be checked once.
+      $requirements['fields'] = _contentimport_requirements_set_fields($requirements['content_type']->type);
+
+      // Compare available fields to fields listed in json data to find any missing fields.
+      // Again this only needs to be checked once.
       if (!isset($requirements['missing_fields'])) {
-        // Get fieldinfo for fields of content type.
-        $node_fields = field_info_instances('node', $requirements['content_type']->type);
-        foreach ($node_fields as $field_name => $field) {
-          $fields[$field_name] = field_info_field($field['field_name']);
-        }
-        $requirements['fields'] = $fields;
-        // Only trustworthy for drupal 7.22 or above
-//        $requirements['fields'] = field_read_fields(array(
-//          'entity_type' => 'node',
-//          'bundle' => $requirements['content_type']->type,
-//        ));
-//      dpm($fields);
-        // Determine what custom fields are present in json data.
-        $json_row_keys = array_keys($json_row);
-        $json_field_keys = preg_grep('/^field_[a-z]*$/', $json_row_keys);
-//        dpm($json_field_keys);
-        // Compare with json data to find missing fields.
-        $field_names = array_keys($requirements['fields']);
-        $requirements['missing_fields'] = array_diff($json_field_keys, $field_names);
+        $requirements['missing_fields'] = _contentimport_requirements_compare_fields($requirements['fields'], $json_row);
       }
 
       // Check if any of the json rows have images, set flag if it hasn't been set already.
@@ -454,6 +418,7 @@ function _contentimport_check_requirements($json_data, $files_location) {
         //Cycle through fields.
         foreach ($requirements['fields'] as $field) {
           // If fieldtype is image, set flag if field is not empty.
+          //!
           if ($field['type'] === 'image') {
             if (!empty($json_row[$field['field_name']])) {
               $requirements['images'] = TRUE;
@@ -476,16 +441,16 @@ function _contentimport_check_requirements($json_data, $files_location) {
           $regex = CONTENTIMPORT_IMG_FILE_REGEX;
           $options = array('recurse' => TRUE);
           $images = file_scan_directory($requirements['images_location'], $regex, $options);
-//        dpm($images);
+//        dpm($images, 'result of file scan at images_location matching image file regex');
           // Check for images and set flag.
           if (!empty($images)) {
-            $requirements['image_files'] = TRUE;
+            $requirements['image_files'] = $images;
           }
         }
       }
     }
   }
-//  dpm($requirements, 'requirements');
+//  dpm($requirements, 'complete requirements');
 
   return $requirements;
 }
@@ -504,7 +469,7 @@ function _contentimport_warning_page() {
     $render_array = array();
 
     // Warnings.
-    dpm($warnings);
+    dpm($warnings, 'warnings retrieved from session');
     // Missing fields.
     if (isset($warnings['missing_fields']) && !empty($warnings['missing_fields'])) {
       $render_array['warnings']['missing_fields'] = array(
@@ -572,9 +537,7 @@ function contentimport_warning_form_submit($form, &$form_state) {
   if ($form_state['values']['remember_choice'] == TRUE) {
     // Add entry in contentimport_remember table
     $query = db_insert('contentimport_remember')
-        ->fields(array(
-          'import_location' => $import_location,
-        ))
+        ->fields(array('import_location' => $import_location))
         ->execute();
   }
 
@@ -593,4 +556,90 @@ function _contentimport_field_not_handled($name, $type) {
     '%field' => $name,
     '%field_type' => $type,
       )), 'warning');
+}
+
+/**
+ * Custom function : evaluates data in $requirements array and takes appropriate
+ * action, like aborting the import process or generating a list of warnings.
+ * @param array $requirements
+ * @return array list of warnings.
+ */
+function _contentimport_evaluate_requirements($requirements) {
+  if ($requirements['content_type'] === FALSE) {
+    // Content type is not available, halt import.
+    drupal_set_message(t('The content type that you are attempting to import is not available on this site.'), 'error');
+    drupal_goto('admin/import/locate-files');
+  }
+  else {
+    // Content type is available, continue import.
+    $warnings = array();
+
+    // Check missing fields
+    if (!empty($requirements['missing_fields'])) {
+      foreach ($requirements['missing_fields'] as $missing_field) {
+        $warnings['missing_fields'][$missing_field] = t(
+            'The field %field is present in the import data but not available for %contenttype content type on this site.', array(
+          '%field' => $missing_field,
+          '%contenttype' => $requirements['content_type']->type,
+        ));
+      }
+    }
+
+    // Check if images are used.
+    if ($requirements['images'] === TRUE) {
+      // Check if images location is valid.
+      if ($requirements['images_location'] === FALSE) {
+        $warnings['images_location'] = t(
+            'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
+      }
+      elseif ($requirements['image_files'] === FALSE) {
+        $warnings['image_files'] = t(
+            'There are images present in the import data but the image folder does not contain any image files.');
+      }
+    }
+
+    return $warnings;
+  }
+}
+
+/**
+ * Custom function : returns field info data for all fields of a content type.
+ * @param type $content_type
+ * @return array field info data of all fields related to content type
+ */
+function _contentimport_requirements_set_fields($content_type) {
+  // Get fields related to content type
+  $node_fields = field_info_instances('node', $content_type);
+  // Get field info for each field
+  foreach ($node_fields as $field) {
+    $fields[$field['field_name']] = field_info_field($field['field_name']);
+  }
+
+  return $fields;
+  // ! field_read_fields function only trustworthy for drupal 7.22 or above
+//        $requirements['fields'] = field_read_fields(array(
+//          'entity_type' => 'node',
+//          'bundle' => $requirements['content_type']->type,
+//        ));
+//      dpm($fields, 'fields available for content type');
+}
+
+/**
+ * Custom function : Compares available fields to fields listed in import data
+ * and returns an array of field names that are listed in the data but not available.
+ * @param array $fields array of field info data keyed by field name
+ * @param array $data_row row of json data array, representing 1 node
+ * @return array array of field names that are listed in the import data but not 
+ *               available for the content type on the current site.
+ */
+function _contentimport_requirements_compare_fields($fields, $data_row) {
+  // Determine what custom fields are present in json data.
+  $row_keys = array_keys($data_row);
+  $listed_fields = preg_grep('/^field_[a-z]*$/', $row_keys);
+//  dpm($json_field_keys, 'array keys in decoded json row matching /^field_[a-z]*$/');
+  // Get field names of available fields
+  $available_fields = array_keys($fields);
+
+  // Compare with json data to find missing fields.
+  return array_diff($listed_fields, $available_fields);
 }
