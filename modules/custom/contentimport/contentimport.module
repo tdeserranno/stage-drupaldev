@@ -184,13 +184,11 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
 
   // Cylce through data array.
   foreach ($import_data as $import_row) {
-    // Check if node type to be imported exists on the site. EDIT: no longer needed? checked by requirements?
-//    if (isset($node_types[$import_row['type']])) {
     // Build new node.
     $new_node = new stdClass();
     $new_node->type = $import_row['type'];
     node_object_prepare($new_node);
-    // Taal koppelen van JSON data ?
+    // Set specific language.
     if (isset($import_row['language']) && !empty($import_row['language'])) {
       $new_node->language = $import_row['language'];
     }
@@ -218,17 +216,16 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
       // Therefor nesting switch to isolate each image type, giving the possibility to supply different
       // image_locations but requiring seperate handling for each field.
       // SUBJECT TO CHANGE IN THE FUTURE
-      dpm($field, 'field being handled');
       switch ($field['type']) {
         case 'image':
           switch ($field['field_name']) {
             case 'field_image':
               // ! enclose dynamic property names in {}
-              $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
+              $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['image_files']);
               break;
             case 'field_thumbnail':
               // ! enclose dynamic property names in {}
-              $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['images_location']);
+              $new_node->{$field['field_name']}[$new_node->language] = _contentimport_prepare_images($import_row, $field['field_name'], $new_node->language, $requirements['image_files']);
               break;
 
             default:
@@ -250,7 +247,7 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
     // Submit node.
     $import_nodes[] = node_submit($new_node);
   }
-  dpm($import_nodes, 'nodes to import');
+//  dpm($import_nodes, 'nodes to import');
 
   return $import_nodes;
 }
@@ -258,47 +255,54 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
 /**
  * Custom function : handle field type image import.
  */
-function _contentimport_prepare_images($import_row, $field_name, $language, $images_location) {
+function _contentimport_prepare_images($import_row, $field_name, $language, $images) {
   $new_images = array();
+  $import_image_uris = array_keys($images);
+
   // Check if field array isn't empty.
   if (isset($import_row[$field_name][$language]) && !empty($import_row[$field_name][$language])) {
     // Cycle through field array.
     foreach ($import_row[$field_name][$language] as $import_image) {
-      // Build path to import file.
-      // ! NO LONGER VALID, DOES NOT ACCOUNT FOR SUBDIRECTORIES !
-//      // Cut filename off of original image file uri.
-//      $regex = CONTENTIMPORT_IMG_FILE_REGEX;
-//      $directory = preg_replace($regex, '', $import_image['uri']);
-//
-//      // Stick it on images_location
-//      $replacement = rtrim($images_location, '/');
-//      $replacement .= '/';
-//      $import_uri = str_replace($directory, $replacement, $import_image['uri']);
+      // Build destination directory uri
+      // Isolate destination directory
+      $destination_directory = preg_replace(CONTENTIMPORT_IMG_FILE_REGEX, '', $import_image['uri']);
+
       // Check writable/Create destination directory.
-      if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
-        drupal_set_message(t('Failed to create destination directory %directory, or is not writable.', array('%directory' => $directory)), 'error');
+      if (!file_prepare_directory($destination_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+        drupal_set_message(t('Failed to create destination directory %directory, or is not writable.', array('%directory' => $destination_directory)), 'error');
       }
       else {
-        // Open import file and save as managed file.
-        $file_data = file_get_contents($import_uri);
-        $destination = $import_image['uri'];
-        $file = file_save_data($file_data, $destination, CONTENTIMPORT_FILE_SAVE_BEHAVIOR);
+        // Search import image file list for filename matching import data
+        $filename = str_replace($destination_directory, '', $import_image['uri']);
+        $pattern = '/' . $filename . '$/';
+        $matches = preg_grep($pattern, $import_image_uris);
+        // On single match, copy file; otherwise display multimatch error
+        if (count($matches) === 1) {
+          $file_uri = array_shift($matches);
+          // Open import file and save as managed file.
+          $file_data = file_get_contents($file_uri);
+          $destination = $import_image['uri'];
+          $file = file_save_data($file_data, $destination, CONTENTIMPORT_FILE_SAVE_BEHAVIOR);
 
-        // Convert stdClass to associative array.
-        $file = json_decode(json_encode($file), TRUE);
+          // Convert stdClass to associative array.
+          $file = json_decode(json_encode($file), TRUE);
 
-        // Add additional data.
-        $file['alt'] = $import_image['alt'];
-        $file['title'] = $import_image['title'];
-        $file['width'] = $import_image['width'];
-        $file['height'] = $import_image['height'];
+          // Add additional data.
+          $file['alt'] = $import_image['alt'];
+          $file['title'] = $import_image['title'];
+          $file['width'] = $import_image['width'];
+          $file['height'] = $import_image['height'];
 
-        // Add new file to array.
-        $new_images[] = $file;
+          // Add new file to array.
+          $new_images[] = $file;
+        }
+        else {
+          drupal_set_message(t('No single match for file %filename, file not created.', array('%filename' => $filename)), 'error');
+        }
       }
     }
+    return $new_images;
   }
-  return $new_images;
 }
 
 /**
@@ -388,8 +392,6 @@ function _contentimport_get_vocabulary_id($vocabularies, $search_machine_name) {
 function _contentimport_generate_requirements($json_data, $files_location) {
   $requirements = array();
   // Flags default values
-  $requirements['images'] = FALSE;
-  $requirements['images_location'] = FALSE;
   $requirements['image_files'] = FALSE;
 
   // Cycle through JSON data.
@@ -413,44 +415,12 @@ function _contentimport_generate_requirements($json_data, $files_location) {
         $requirements['missing_fields'] = _contentimport_requirements_compare_fields($requirements['fields'], $json_row);
       }
 
-      // Check if any of the json rows have images, set flag if it hasn't been set already.
-      if (!isset($requirements['images'])) {
-        //Cycle through fields.
-        foreach ($requirements['fields'] as $field) {
-          // If fieldtype is image, set flag if field is not empty.
-          //!
-          if ($field['type'] === 'image') {
-            if (!empty($json_row[$field['field_name']])) {
-              $requirements['images'] = TRUE;
-            }
-          }
-        }
-      }
-
-      // Check for image folder @ files location.
-      $images_location = rtrim($files_location, '/') . '/image';
-      if (is_dir($images_location)) {
-        $requirements['images_location'] = $images_location;
-      }
-
-      // If images_location is valid, check for images.
-      if ($requirements['images_location'] !== FALSE) {
-        // If images are used, check if export folder isn't empty.
-        if ($requirements['images']) {
-          // Scan images_location.
-          $regex = CONTENTIMPORT_IMG_FILE_REGEX;
-          $options = array('recurse' => TRUE);
-          $images = file_scan_directory($requirements['images_location'], $regex, $options);
-//        dpm($images, 'result of file scan at images_location matching image file regex');
-          // Check for images and set flag.
-          if (!empty($images)) {
-            $requirements['image_files'] = $images;
-          }
-        }
-      }
+      // Scan files location for image files
+      $options = array('recurse' => TRUE);
+      $requirements['image_files'] = file_scan_directory($files_location, CONTENTIMPORT_IMG_FILE_REGEX, $options);
     }
   }
-//  dpm($requirements, 'complete requirements');
+//    dpm($requirements, 'complete requirements');
 
   return $requirements;
 }
@@ -469,7 +439,7 @@ function _contentimport_warning_page() {
     $render_array = array();
 
     // Warnings.
-    dpm($warnings, 'warnings retrieved from session');
+//      dpm($warnings, 'warnings retrieved from session');
     // Missing fields.
     if (isset($warnings['missing_fields']) && !empty($warnings['missing_fields'])) {
       $render_array['warnings']['missing_fields'] = array(
@@ -586,17 +556,18 @@ function _contentimport_evaluate_requirements($requirements) {
     }
 
     // Check if images are used.
-    if ($requirements['images'] === TRUE) {
-      // Check if images location is valid.
-      if ($requirements['images_location'] === FALSE) {
-        $warnings['images_location'] = t(
-            'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
-      }
-      elseif ($requirements['image_files'] === FALSE) {
-        $warnings['image_files'] = t(
-            'There are images present in the import data but the image folder does not contain any image files.');
-      }
-    }
+    // ! rewrite/delete after review
+//    if ($requirements['images'] === TRUE) {
+//      // Check if images location is valid.
+//      if ($requirements['images_location'] === FALSE) {
+//        $warnings['images_location'] = t(
+//            'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
+//      }
+//      elseif ($requirements['image_files'] === FALSE) {
+//        $warnings['image_files'] = t(
+//            'There are images present in the import data but the image folder does not contain any image files.');
+//      }
+//    }
 
     return $warnings;
   }
