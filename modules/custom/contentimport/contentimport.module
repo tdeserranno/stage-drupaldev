@@ -100,7 +100,6 @@ function _contentimport_begin_import($files_location) {
   // Check for JSON file.
   $options = array('recurse' => TRUE);
   $json_files = file_scan_directory($files_location, CONTENTIMPORT_JSON_FILE_REGEX, $options);
-//  dpm($json_file, 'result of file scan for json file');
   if (!empty($json_files)) {
     if (count($json_files) > 1) {
       drupal_set_message('More than one JSON file found.', 'error');
@@ -116,7 +115,6 @@ function _contentimport_begin_import($files_location) {
   $json_file = array_shift($json_files);
   $json_data = file_get_contents($json_file->uri);
   $json_data = drupal_json_decode($json_data);
-//  dpm($json_data, 'decoded import data');
   // Check import site requirements.
   $requirements = _contentimport_generate_requirements($json_data, $files_location);
 
@@ -165,7 +163,6 @@ function _contentimport_import($json_data, $requirements) {
 
   // Prepare import data
   $new_nodes = _contentimport_prepare_data($json_data, $requirements);
-//  dpm($new_nodes, 'New nodes');
   // Save new nodes.
   foreach ($new_nodes as $node) {
     node_save($node);
@@ -181,8 +178,6 @@ function _contentimport_import($json_data, $requirements) {
 
   if ($filesize_before !== FALSE) {
     $filesize_after = filesize(CONTENTIMPORT_ERRORLOG_URI);
-//    dpm($filesize_before, 'filesize before');
-//    dpm($filesize_after, 'filesize after');
     if (($filesize_after > $filesize_before) || ($filesize_after === $filesize_before && $new_file === TRUE)) {
       $url = file_create_url(CONTENTIMPORT_ERRORLOG_URI);
       drupal_set_message(t('Some errors were logged, see the error log for details !url.', array('!url' => l('here', $url))), 'warning');
@@ -202,8 +197,6 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
   $import_nodes = array();
   global $user;
 
-  // Get site's node types. EDIT: no longer needed? checked by requirements?
-//  $node_types = node_type_get_types();
   // Get site vocabularies.
   $vocabularies = taxonomy_vocabulary_get_names();
 
@@ -341,7 +334,6 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
   // Check if the field array isn't empty
   if (isset($import_row[$field_name][$language]) && !empty($import_row[$field_name][$language])) {
     // Cycle through field array.
-//    dpm($import_row[$field_name][$language], 'array of taxonomy terms to import');
     foreach ($import_row[$field_name][$language] as $row_term) {
       // Check if term exists.
       $matching_terms = taxonomy_get_term_by_name($row_term['name'], $row_term['vocabulary_machine_name']);
@@ -363,10 +355,6 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
         }
         else {
           // Vocabulary does not exist, log error.
-//          drupal_set_message(t('Vocabulary %vocabulary for term %term does not exist, term not imported.', array(
-//            '%vocabulary' => $row_term['vocabulary_machine_name'],
-//            '%term' => $row_term['name'],
-//              )), 'warning');
           $term = $row_term['name'];
           $vocabulary = $row_term['vocabulary_machine_name'];
           $node_title = $import_row['title'];
@@ -375,19 +363,8 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
       }
       else {
         // Term already exists.
-        // What to do when there are 2 terms with the same name in the same vocabulary ????
-        // Problem is most likely a result of devel generate, unlikely to occur in RL??
         $keys = array_keys($matching_terms);
         if (count($keys) > 1) {
-//          drupal_set_message(t('More than 1 matching term for %term in vocabulary %vocabulary, term assigned to first match.', array(
-//            '%vocabulary' => $row_term['vocabulary_machine_name'],
-//            '%term' => $row_term['name'],
-//              )), 'warning');
-//          $errors[] = t('More than 1 matching term for %term in vocabulary %vocabulary when importing node %note_title, term assigned to first match.', array(
-//            '%vocabulary' => $row_term['vocabulary_machine_name'],
-//            '%term' => $row_term['name'],
-//            '%node_title' => $import_row['title'],
-//          ));
           $term = $row_term['name'];
           $vocabulary = $row_term['vocabulary_machine_name'];
           $node_title = $import_row['title'];
@@ -467,7 +444,6 @@ function _contentimport_generate_requirements($json_data, $files_location) {
       $requirements['image_files'] = file_scan_directory($files_location, CONTENTIMPORT_IMG_FILE_REGEX, $options);
     }
   }
-//    dpm($requirements, 'complete requirements');
 
   return $requirements;
 }
@@ -486,7 +462,6 @@ function _contentimport_warning_page() {
     $render_array = array();
 
     // Warnings.
-//      dpm($warnings, 'warnings retrieved from session');
     // Missing fields.
     if (isset($warnings['missing_fields']) && !empty($warnings['missing_fields'])) {
       $render_array['warnings']['missing_fields'] = array(
@@ -567,12 +542,9 @@ function contentimport_warning_form_submit($form, &$form_state) {
 
 /**
  * Custom function : display message if field isn't handled for import.
+ * ! Performance hit of logging multiple single line errors? !
  */
 function _contentimport_field_not_handled($name, $type, $node_title) {
-//  drupal_set_message(t('Import for %field of type %field_type not handled.', array(
-//    '%field' => $name,
-//    '%field_type' => $type,
-//      )), 'warning');
   $errorstring = "Import for $name of type $type not handled when importing node $node_title.";
   $errors = array($errorstring);
   _contentimport_log_errors($errors);
@@ -605,20 +577,6 @@ function _contentimport_evaluate_requirements($requirements) {
       }
     }
 
-    // Check if images are used.
-    // ! rewrite/delete after review
-//    if ($requirements['images'] === TRUE) {
-//      // Check if images location is valid.
-//      if ($requirements['images_location'] === FALSE) {
-//        $warnings['images_location'] = t(
-//            'There are images present in the import data but %files_location does not contain an image directory.', array('%files_location', $files_location));
-//      }
-//      elseif ($requirements['image_files'] === FALSE) {
-//        $warnings['image_files'] = t(
-//            'There are images present in the import data but the image folder does not contain any image files.');
-//      }
-//    }
-
     return $warnings;
   }
 }
@@ -637,12 +595,6 @@ function _contentimport_requirements_set_fields($content_type) {
   }
 
   return $fields;
-  // ! field_read_fields function only trustworthy for drupal 7.22 or above
-//        $requirements['fields'] = field_read_fields(array(
-//          'entity_type' => 'node',
-//          'bundle' => $requirements['content_type']->type,
-//        ));
-//      dpm($fields, 'fields available for content type');
 }
 
 /**
@@ -657,7 +609,6 @@ function _contentimport_requirements_compare_fields($fields, $data_row) {
   // Determine what custom fields are present in json data.
   $row_keys = array_keys($data_row);
   $listed_fields = preg_grep('/^field_[a-z]*$/', $row_keys);
-//  dpm($json_field_keys, 'array keys in decoded json row matching /^field_[a-z]*$/');
   // Get field names of available fields
   $available_fields = array_keys($fields);
 
