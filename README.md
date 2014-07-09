@@ -51,3 +51,8 @@ Import functionality for contentexport module.
 
 **Changes:** 	code reviewed and rewritten based on feedback
 ***
+####09/07/2014
+**Modules:** contentimport
+
+**Changes:** 	all drupal messages of warning type changed to logging in error log file.
+***
