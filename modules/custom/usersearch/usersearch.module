@@ -53,7 +53,7 @@ function usersearch_menu() {
   $items['usersearch/export/csv'] = array(
     'title' => 'Export users to CSV',
     'description' => 'Export site users to CSV file.',
-    'page callback' => '_export_csv_download',
+    'page callback' => '_usersearch_export_csv_download',
     'access arguments' => array('access administration pages'),
     'type' => MENU_CALLBACK,
   );
@@ -75,7 +75,7 @@ function _usersearch_search_page() {
   }
 
   // Get users.
-  $users = _get_users_search($query_parameters);
+  $users = _usersearch_get_users_search($query_parameters);
 
   // Build render array: search form.
   $page_array['form'] = drupal_get_form('usersearch_search_form');
@@ -146,7 +146,7 @@ function _usersearch_search_page() {
  * Custom function: retrieves users from database for search results.
  * Note: extending db_select with PagerDefault, necessary for using the pager.
  */
-function _get_users_search($search_args = array()) {
+function _usersearch_get_users_search($search_args = array()) {
 
   // Getting user data using user_load_multiple.
   // Note: chained limit() onto the extender to set number of items per page for
@@ -157,8 +157,7 @@ function _get_users_search($search_args = array()) {
   $uid_query->condition('uid', 0, '!=');
   // Add condition for username if argument was given.
   if (isset($search_args['username']) && $search_args['username'] !== '') {
-    $search_args['username'] = '%' . $search_args['username'] . '%';
-    $uid_query->condition('name', $search_args['username'], 'LIKE');
+    $uid_query->condition('name', '%' . $search_args['username'] . '%', 'LIKE');
   }
   // Add condition for mail if argument was given.
   if (isset($search_args['mail']) && $search_args['mail'] !== '') {
@@ -236,10 +235,12 @@ function usersearch_search_form_validate($form, &$form_state) {
 /**
  * Custom function: Generate filename for export file.
  */
-function _export_generate_filename($prefix, $extension) {
+function _usersearch_generate_filename($prefix, $extension = '') {
   $filename = $prefix;
   $filename .= '_' . format_date(time(), 'custom', 'd-m-Y');
-  $filename .= '.' . $extension;
+  if ($extension !== '') {
+    $filename .= '.' . $extension;
+  }
 
   return $filename;
 }
@@ -248,9 +249,9 @@ function _export_generate_filename($prefix, $extension) {
  * Menu callback: Exports JSON file and images to folder on the server. Export 
  * files are unmanaged.
  */
-function _export_json_unmanaged() {
+function _usersearch_export_json_unmanaged() {
   // Retrieve users to be exported.
-  $users = _get_users_export();
+  $users = _usersearch_get_users_export();
 
   // Check if there is actual data.
   if (empty($users)) {
@@ -284,7 +285,7 @@ function _export_json_unmanaged() {
 
     // Create JSON file.
     $file_data = drupal_json_encode($data['json']);
-    $filename = _export_generate_filename('users', 'json');
+    $filename = _usersearch_generate_filename('users', 'json');
     $destination = $directory . '/' . $filename;
     $filename = file_unmanaged_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
     if ($filename) {
@@ -327,9 +328,9 @@ function _export_json_unmanaged() {
  * Menu callback: Exports JSON file and images to folder on the server. Export 
  * files are managed.
  */
-function _export_json_managed() {
+function _usersearch_export_json_managed() {
   // Retrieve users to be exported.
-  $users = _get_users_export();
+  $users = _usersearch_get_users_export();
 
   // Check if there is actual data.
   if (empty($users)) {
@@ -363,7 +364,7 @@ function _export_json_managed() {
 
     // Create JSON file.
     $file_data = drupal_json_encode($data['json']);
-    $filename = _export_generate_filename('users', 'json');
+    $filename = _usersearch_generate_filename('users', 'json');
     $destination = $directory . '/' . $filename;
     $file = file_save_data($file_data, $destination, FILE_EXISTS_REPLACE);
     if (!empty($file)) {
@@ -405,9 +406,9 @@ function _export_json_managed() {
 /**
  * Menu callback: Exports to CSV file.
  */
-function _export_csv_download() {
+function _usersearch_export_csv_download() {
   // Retrieve users to be exported.
-  $users = _get_users_export();
+  $users = _usersearch_get_users_export();
 
   // Check if there is actual data.
   if (empty($users)) {
@@ -430,7 +431,7 @@ function _export_csv_download() {
   // Build CSV header.
   $header = array_keys($data[0]);
   // Create filename.
-  $filename = _export_generate_filename('users', 'csv');
+  $filename = _usersearch_generate_filename('users', 'csv');
   // Force browser file download.
   drupal_add_http_header('content-disposition', 'attachment; filename=' . $filename);
   // Set CSV content type.
@@ -450,7 +451,7 @@ function _export_csv_download() {
 /**
  * Custom function: get all users for export.
  */
-function _get_users_export() {
+function _usersearch_get_users_export() {
   // Build database query.
   $query = db_select('users', 'u')
       ->fields('u', array('uid'));
