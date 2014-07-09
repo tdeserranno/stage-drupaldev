@@ -181,11 +181,11 @@ function _contentimport_import($json_data, $requirements) {
 
   if ($filesize_before !== FALSE) {
     $filesize_after = filesize(CONTENTIMPORT_ERRORLOG_URI);
-    dpm($filesize_before, 'filesize before');
-    dpm($filesize_after, 'filesize after');
+//    dpm($filesize_before, 'filesize before');
+//    dpm($filesize_after, 'filesize after');
     if (($filesize_after > $filesize_before) || ($filesize_after === $filesize_before && $new_file === TRUE)) {
       $url = file_create_url(CONTENTIMPORT_ERRORLOG_URI);
-      drupal_set_message(t('Some errors have occurred, see the error log for details !url.', array('!url' => l('here', $url))), 'warning');
+      drupal_set_message(t('Some errors were logged, see the error log for details !url.', array('!url' => l('here', $url))), 'warning');
     }
   }
 
@@ -254,7 +254,7 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
               break;
 
             default:
-              _contentimport_field_not_handled($field['field_name'], $field['type']);
+              _contentimport_field_not_handled($field['field_name'], $field['type'], $import_row['title']);
               break;
           }
           break;
@@ -264,7 +264,7 @@ function _contentimport_prepare_data(array $import_data, $requirements) {
           break;
 
         default:
-          _contentimport_field_not_handled($field['field_name'], $field['type']);
+          _contentimport_field_not_handled($field['field_name'], $field['type'], $import_row['title']);
           break;
       }
     }
@@ -362,11 +362,15 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
           $new_terms[] = $term;
         }
         else {
-          // Vocabulary does not exist, inform user.
-          drupal_set_message(t('Vocabulary %vocabulary for term %term does not exist, term not imported.', array(
-            '%vocabulary' => $row_term['vocabulary_machine_name'],
-            '%term' => $row_term['name'],
-              )), 'warning');
+          // Vocabulary does not exist, log error.
+//          drupal_set_message(t('Vocabulary %vocabulary for term %term does not exist, term not imported.', array(
+//            '%vocabulary' => $row_term['vocabulary_machine_name'],
+//            '%term' => $row_term['name'],
+//              )), 'warning');
+          $term = $row_term['name'];
+          $vocabulary = $row_term['vocabulary_machine_name'];
+          $node_title = $import_row['title'];
+          $errors[] = "Vocabulary $vocabulary for term $term in node $node_title does not exist, term not imported.";
         }
       }
       else {
@@ -564,11 +568,14 @@ function contentimport_warning_form_submit($form, &$form_state) {
 /**
  * Custom function : display message if field isn't handled for import.
  */
-function _contentimport_field_not_handled($name, $type) {
-  drupal_set_message(t('Import for %field of type %field_type not handled.', array(
-    '%field' => $name,
-    '%field_type' => $type,
-      )), 'warning');
+function _contentimport_field_not_handled($name, $type, $node_title) {
+//  drupal_set_message(t('Import for %field of type %field_type not handled.', array(
+//    '%field' => $name,
+//    '%field_type' => $type,
+//      )), 'warning');
+  $errorstring = "Import for $name of type $type not handled when importing node $node_title.";
+  $errors = array($errorstring);
+  _contentimport_log_errors($errors);
 }
 
 /**
