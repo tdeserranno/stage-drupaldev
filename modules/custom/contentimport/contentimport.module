@@ -303,6 +303,8 @@ function _contentimport_prepare_images($import_row, $field_name, $language, $ima
           $file = file_save_data($file_data, $destination, CONTENTIMPORT_FILE_SAVE_BEHAVIOR);
 
           // Convert stdClass to associative array.
+          // casting ??
+          // $file = (array) $file;
           $file = json_decode(json_encode($file), TRUE);
 
           // Add additional data.

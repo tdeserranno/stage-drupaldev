@@ -12,8 +12,8 @@
 /**
  * Implements hook_help().
  */
-function usersearch_import_help($path, $args) {
-  if ($path === 'admin/help#usersearch_import') {
+function userimport_help($path, $args) {
+  if ($path === 'admin/help#userimport') {
     return '<p>' . t('Imports users exported by Usersearch module.') . '<p>';
   }
 }
@@ -21,18 +21,18 @@ function usersearch_import_help($path, $args) {
 /**
  * Implements hook_menu().
  */
-function usersearch_import_menu() {
+function userimport_menu() {
   $items['usersearch-import/import'] = array(
     'title' => 'Import users',
     'description' => 'Import site users',
     'page callback' => 'drupal_get_form',
-    'page arguments' => array('usersearch_import_form'),
+    'page arguments' => array('userimport_form'),
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
   $items['usersearch-import/mailtest'] = array(
     'title' => 'PHP Mail test',
-    'page callback' => '_import_mailtest',
+    'page callback' => '_userimport_import_mailtest',
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
@@ -42,9 +42,9 @@ function usersearch_import_menu() {
 
 /**
  * Implements hook_form().
- * Form builder : usersearch_import form, select file for import.
+ * Form builder : userimport form, select file for import.
  */
-function usersearch_import_form($form, &$form_state) {
+function userimport_form($form, &$form_state) {
   $form['import_file'] = array(
     '#type' => 'file',
     '#title' => t('Import file'),
@@ -59,10 +59,10 @@ function usersearch_import_form($form, &$form_state) {
 }
 
 /**
- * Form validation : validate usersearch_import form.
+ * Form validation : validate userimport form.
  * Handles file upload of the zip archive.
  */
-function usersearch_import_form_validate($form, &$form_state) {
+function userimport_form_validate($form, &$form_state) {
   $uploaded_file = file_save_upload('import_file', array(
     // Validation options.
     'file_validate_extensions' => array('zip'),
@@ -85,9 +85,9 @@ function usersearch_import_form_validate($form, &$form_state) {
 }
 
 /**
- * Form submit handler : handle usersearch_import form
+ * Form submit handler : handle userimport form
  */
-function usersearch_import_form_submit($form, &$form_state) {
+function userimport_form_submit($form, &$form_state) {
 //  dpm($form_state['storage']['import_file']);
   $uploaded_file = $form_state['storage']['import_file'];
   unset($form_state['storage']['import_file']);
@@ -116,19 +116,19 @@ function usersearch_import_form_submit($form, &$form_state) {
   $archive->extract($extract_location);
 
   // Prepare data for import.
-  $new_accounts = _import_prepare($extract_location, $files);
+  $new_accounts = _userimport_import_prepare($extract_location, $files);
   
   // Import users.
   $import_counter = 0;
   foreach ($new_accounts as $fieldset) {
     // Check if username exists.
-    if (!_import_check_user($fieldset['name'])) {
+    if (!_userimport_import_check_user($fieldset['name'])) {
       // Save account.
 //      drupal_set_message(t('No user with username %username exists, ready for import.', array(
 //        '%username' => $account->name)));
       if (user_save('',$fieldset)) {
         // Notify user with new password.
-        _import_mail_notify_user($fieldset);
+        _userimport_import_mail_notify_user($fieldset);
         
         // Increase counter.
         $import_counter++;
@@ -164,7 +164,7 @@ function usersearch_import_form_submit($form, &$form_state) {
 /**
  * Custom function : Prepare data for import.
  */
-function _import_prepare($extract_location, $files) {
+function _userimport_import_prepare($extract_location, $files) {
   $data = array();
 
   // Find JSON file.
@@ -198,7 +198,7 @@ function _import_prepare($extract_location, $files) {
     $fieldset['roles'] = array(DRUPAL_AUTHENTICATED_RID => 'authenticated user');
     if (!empty($row['image_uri'])) {
 //      $image_uri = str_replace('public://', $extract_location, $row['image_uri']);
-      $fieldset['picture'] = _import_profile_picture($row['image_uri'], $files, $extract_location);
+      $fieldset['picture'] = _userimport_import_profile_picture($row['image_uri'], $files, $extract_location);
     }
     // Add prepared account object to data array.
     $data[] = $fieldset;
@@ -211,7 +211,7 @@ function _import_prepare($extract_location, $files) {
 /**
  * Custom function : Move user picture to correct folder and create managed file and return its fid.
  */
-function _import_profile_picture($image_uri, $files, $extract_location) {
+function _userimport_import_profile_picture($image_uri, $files, $extract_location) {
   // Find correct file entry in $files array.
   $needle = str_replace('public://', '', $image_uri);
   $file_key = array_search($needle, $files);
@@ -255,7 +255,7 @@ function _import_profile_picture($image_uri, $files, $extract_location) {
 /**
  * Custom function : Check if a user with given username already exists.
  */
-function _import_check_user($username) {
+function _userimport_import_check_user($username) {
   // Create query.
   $query = db_select('users', 'u')
       ->fields('u', array('uid', 'name'))
@@ -272,7 +272,7 @@ function _import_check_user($username) {
 /**
  * Custom function : PHP Mail test
  */
-function _import_mailtest() {
+function _userimport_import_mailtest() {
   // Dummy data.
   $username = 'dummy_user';
   $password = user_password();
@@ -280,23 +280,11 @@ function _import_mailtest() {
   
   // Build mail.
   $to = 'someuser@drupal.dev.invalid';
-  $subject = 'Multi.dev - Mail test';
-  $message = '
-    <html>
-      <head>
-        <title>New password</title>
-      </head>
-      <body>
-        <h3>This is a test mail for Multi.dev import module</h3>
-        <p>Your account was imported into the ' . $sitename . ' site.</p>
-        <p>username: ' . $username . '</p>
-        <p>new password: ' . $password .'</p>
-      </body>
-    </html>
-    ';
+  $subject = 'Multi.dev - Mail test with tpl file';
+  $message = theme('userimport_mail', array('username' => $username, 'password' => $password));
   // To send HTML mail, the Content-type header must be set
-  $headers  = 'MIME-Version: 1.0' . "\r\n";
-  $headers .= 'Content-type: text/html; charset=iso-8859-1' . "\r\n";
+  $headers  = 'MIME-Version: 1.0' . PHP_EOL;
+  $headers .= 'Content-type: text/html; charset=iso-8859-1' . PHP_EOL;
 
   // Send mail.
   mail($to, $subject, $message, $headers);
@@ -308,7 +296,7 @@ function _import_mailtest() {
 /**
  * Custom function : PHP Mail test
  */
-function _import_mail_notify_user($fieldset) {
+function _userimport_import_mail_notify_user($fieldset) {
   $sitename = 'Multi.dev';
   
   // Build mail.
@@ -328,9 +316,25 @@ function _import_mail_notify_user($fieldset) {
     </html>
     ';
   // To send HTML mail, the Content-type header must be set
-  $headers  = 'MIME-Version: 1.0' . "\r\n";
-  $headers .= 'Content-type: text/html; charset=iso-8859-1' . "\r\n";
+  $headers  = 'MIME-Version: 1.0' . PHP_EOL;
+  $headers .= 'Content-type: text/html; charset=iso-8859-1' . PHP_EOL;
 
   // Send mail.
   mail($to, $subject, $message, $headers);
+}
+
+/**
+ * Implements hook_theme()
+ */
+function userimport_theme($existing, $type, $theme, $path) {
+  return array(
+    'userimport_mail' => array(
+      'template' => 'userimport_mail',
+      'variables' => array(
+        'username' => NULL,
+        'password' => NULL,
+        'site_name' => variable_get('site_name'),
+      ),
+    ),
+  );
 }
