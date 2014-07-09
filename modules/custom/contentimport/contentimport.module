@@ -11,6 +11,7 @@
 define('CONTENTIMPORT_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
 define('CONTENTIMPORT_IMG_FILE_REGEX', '/[\w\s\-]+\.(jpg|png|jpeg|gif)$/');
 define('CONTENTIMPORT_JSON_FILE_REGEX', '/[\w\s\-]+\.json$/');
+define('CONTENTIMPORT_ERRORLOG_URI', 'public://import/log/error.txt');
 
 /**
  * Implements hook_help().
@@ -155,13 +156,37 @@ function _contentimport_begin_import($files_location) {
  * Custom function : start actual import process.
  */
 function _contentimport_import($json_data, $requirements) {
+  $filesize_before = FALSE;
+  // Get filesize of error log
+  if (file_exists(CONTENTIMPORT_ERRORLOG_URI)) {
+    $new_file = FALSE;
+    $filesize_before = filesize(CONTENTIMPORT_ERRORLOG_URI);
+  }
+
   // Prepare import data
   $new_nodes = _contentimport_prepare_data($json_data, $requirements);
-  dpm($new_nodes, 'New nodes');
-
+//  dpm($new_nodes, 'New nodes');
   // Save new nodes.
   foreach ($new_nodes as $node) {
     node_save($node);
+  }
+
+  // Compare filesize of error log
+  if ($filesize_before === FALSE) {
+    if (file_exists(CONTENTIMPORT_ERRORLOG_URI)) {
+      $new_file = TRUE;
+      $filesize_before = filesize(CONTENTIMPORT_ERRORLOG_URI);
+    }
+  }
+
+  if ($filesize_before !== FALSE) {
+    $filesize_after = filesize(CONTENTIMPORT_ERRORLOG_URI);
+    dpm($filesize_before, 'filesize before');
+    dpm($filesize_after, 'filesize after');
+    if (($filesize_after > $filesize_before) || ($filesize_after === $filesize_before && $new_file === TRUE)) {
+      $url = file_create_url(CONTENTIMPORT_ERRORLOG_URI);
+      drupal_set_message(t('Some errors have occurred, see the error log for details !url.', array('!url' => l('here', $url))), 'warning');
+    }
   }
 
   // SESSION cleanup
@@ -301,8 +326,8 @@ function _contentimport_prepare_images($import_row, $field_name, $language, $ima
         }
       }
     }
-    return $new_images;
   }
+  return $new_images;
 }
 
 /**
@@ -311,6 +336,8 @@ function _contentimport_prepare_images($import_row, $field_name, $language, $ima
 function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $vocabularies) {
   $new_terms = array();
   $new_tids = array();
+  $errors = array();
+
   // Check if the field array isn't empty
   if (isset($import_row[$field_name][$language]) && !empty($import_row[$field_name][$language])) {
     // Cycle through field array.
@@ -348,10 +375,19 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
         // Problem is most likely a result of devel generate, unlikely to occur in RL??
         $keys = array_keys($matching_terms);
         if (count($keys) > 1) {
-          drupal_set_message(t('More than 1 matching term for %term in vocabulary %vocabulary, term assigned to first match.', array(
-            '%vocabulary' => $row_term['vocabulary_machine_name'],
-            '%term' => $row_term['name'],
-              )), 'warning');
+//          drupal_set_message(t('More than 1 matching term for %term in vocabulary %vocabulary, term assigned to first match.', array(
+//            '%vocabulary' => $row_term['vocabulary_machine_name'],
+//            '%term' => $row_term['name'],
+//              )), 'warning');
+//          $errors[] = t('More than 1 matching term for %term in vocabulary %vocabulary when importing node %note_title, term assigned to first match.', array(
+//            '%vocabulary' => $row_term['vocabulary_machine_name'],
+//            '%term' => $row_term['name'],
+//            '%node_title' => $import_row['title'],
+//          ));
+          $term = $row_term['name'];
+          $vocabulary = $row_term['vocabulary_machine_name'];
+          $node_title = $import_row['title'];
+          $errors[] = "More than 1 matching term $term for  in vocabulary $vocabulary when importing node $node_title, term assigned to first match.";
         }
         $new_tids[] = array(
           'tid' => $keys[0],
@@ -368,6 +404,13 @@ function _contentimport_prepare_taxonomy($import_row, $field_name, $language, $v
     );
   }
 
+  // Log any errors
+  if (!empty($errors)) {
+    $error_link = _contentimport_log_errors($errors);
+    if ($error_link === FALSE) {
+      drupal_set_message(t('Failed to log errors.'), 'error');
+    }
+  }
   return $new_tids;
 }
 
@@ -613,4 +656,31 @@ function _contentimport_requirements_compare_fields($fields, $data_row) {
 
   // Compare with json data to find missing fields.
   return array_diff($listed_fields, $available_fields);
+}
+
+/**
+ * Custom function : Log export errors in a text file.
+ */
+function _contentimport_log_errors(array $errors) {
+  // Check/Create log directory.
+  $directory = 'public://import/log/';
+  if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+    drupal_set_message(t('Failed to create directory %directory.', array('%directory' => $directory)), 'error');
+    return FALSE;
+  }
+
+  // Write errors to log file
+  if (!empty($errors)) {
+    $file = CONTENTIMPORT_ERRORLOG_URI;
+    foreach ($errors as $error) {
+      // Build errorstring.
+      $errorstring = format_date(REQUEST_TIME, 'custom', 'd-m-Y H:i:s') . ' : ' . $error . PHP_EOL;
+
+      // Write errorstring.
+      if (file_put_contents($file, $errorstring, FILE_APPEND | LOCK_EX) === FALSE) {
+        drupal_set_message(t('Failed to write %string to error logfile.', array('%string' => $errorstring)), 'error');
+        return FALSE;
+      }
+    }
+  }
 }
