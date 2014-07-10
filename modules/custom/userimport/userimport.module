@@ -120,21 +120,21 @@ function userimport_form_submit($form, &$form_state) {
   
   // Import users.
   $import_counter = 0;
-  foreach ($new_accounts as $fieldset) {
+  foreach ($new_accounts as $new_account) {
     // Check if username exists.
-    if (!_userimport_import_check_user($fieldset['name'])) {
+    if (!_userimport_import_check_user($new_account['name'])) {
       // Save account.
 //      drupal_set_message(t('No user with username %username exists, ready for import.', array(
 //        '%username' => $account->name)));
-      if (user_save('',$fieldset)) {
+      if (user_save('',$new_account)) {
         // Notify user with new password.
-        _userimport_import_mail_notify_user($fieldset);
+        _userimport_import_mail_notify_user($new_account);
         
         // Increase counter.
         $import_counter++;
       }
     } else {
-      drupal_set_message(t('A user with username %username already exists.', array('%username' => $fieldset['name'])), 'error');
+      drupal_set_message(t('A user with username %username already exists.', array('%username' => $new_account['name'])), 'error');
     }
   }
   
@@ -158,7 +158,7 @@ function userimport_form_submit($form, &$form_state) {
   }
 
   // Redirect to home?
-  $form_state['redirect'] = '';
+  $form_state['redirect'] = '<front>';
 }
 
 /**
@@ -187,21 +187,21 @@ function _userimport_import_prepare($extract_location, $files) {
 //  dpm($json_data);
   foreach ($json_data as $row) {
     // Prepare account object.
-    $fieldset = array();
-    $fieldset['name'] = $row['name'];
-    $fieldset['mail'] = $row['mail'];
-    $fieldset['init'] = $row['mail'];
-    $fieldset['timezone'] = $row['timezone'];
-    $fieldset['language'] = $row['language'];
-    $fieldset['pass'] = user_password();
-    $fieldset['status'] = 1;
-    $fieldset['roles'] = array(DRUPAL_AUTHENTICATED_RID => 'authenticated user');
+    $new_account = array();
+    $new_account['name'] = $row['name'];
+    $new_account['mail'] = $row['mail'];
+    $new_account['init'] = $row['mail'];
+    $new_account['timezone'] = $row['timezone'];
+    $new_account['language'] = $row['language'];
+    $new_account['pass'] = user_password();
+    $new_account['status'] = 1;
+    $new_account['roles'] = array(DRUPAL_AUTHENTICATED_RID => 'authenticated user');
     if (!empty($row['image_uri'])) {
 //      $image_uri = str_replace('public://', $extract_location, $row['image_uri']);
-      $fieldset['picture'] = _userimport_import_profile_picture($row['image_uri'], $files, $extract_location);
+      $new_account['picture'] = _userimport_import_profile_picture($row['image_uri'], $files, $extract_location);
     }
     // Add prepared account object to data array.
-    $data[] = $fieldset;
+    $data[] = $new_account;
   }
 //  dpm($data);
   
@@ -276,7 +276,6 @@ function _userimport_import_mailtest() {
   // Dummy data.
   $username = 'dummy_user';
   $password = user_password();
-  $sitename = 'Multi.dev';
   
   // Build mail.
   $to = 'someuser@drupal.dev.invalid';
@@ -296,25 +295,11 @@ function _userimport_import_mailtest() {
 /**
  * Custom function : PHP Mail test
  */
-function _userimport_import_mail_notify_user($fieldset) {
-  $sitename = 'Multi.dev';
-  
+function _userimport_import_mail_notify_user($new_account) {
   // Build mail.
-  $to = $fieldset['mail'];
-  $subject = 'Multi.dev - Account imported';
-  $message = '
-    <html>
-      <head>
-        <title>Account imported</title>
-      </head>
-      <body>
-        <h3>This is a test mail for Multi.dev import module</h3>
-        <p>Your account was imported into the ' . $sitename . ' site.</p>
-        <p>username: ' . $fieldset['name'] . '</p>
-        <p>new password: ' . $fieldset['pass'] .'</p>
-      </body>
-    </html>
-    ';
+  $to = $new_account['mail'];
+  $subject = variable_get('site_name') . ' - Account imported';
+  $message = theme('userimport_mail', array('username' => $new_account['name'], 'password' => $new_account['pass']));
   // To send HTML mail, the Content-type header must be set
   $headers  = 'MIME-Version: 1.0' . PHP_EOL;
   $headers .= 'Content-type: text/html; charset=iso-8859-1' . PHP_EOL;

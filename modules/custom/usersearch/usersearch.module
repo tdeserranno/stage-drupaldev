@@ -46,7 +46,7 @@ function usersearch_menu() {
   $items['usersearch/export/json'] = array(
     'title' => 'Export users to JSON',
     'description' => 'Export site users to JSON file.',
-    'page callback' => '_export_json_unmanaged',
+    'page callback' => '_usersearch_export_json_unmanaged',
     'access arguments' => array('access administration pages'),
     'type' => MENU_CALLBACK,
   );
