@@ -8,6 +8,11 @@
  * file containing the user data to be imported and a directory 'pictures' containing
  * the profile pictures of the users.
  */
+/**
+ * Custom constants
+ */
+define('USERIMPORT_IMG_FILE_REGEX', '/[\w\s\-]+\.(jpg|png|jpeg|gif)$/');
+define('USERIMPORT_JSON_FILE_REGEX', '/[\w\s\-]+\.json$/');
 
 /**
  * Implements hook_help().
@@ -22,7 +27,7 @@ function userimport_help($path, $args) {
  * Implements hook_menu().
  */
 function userimport_menu() {
-  $items['usersearch-import/import'] = array(
+  $items['userimport/import'] = array(
     'title' => 'Import users',
     'description' => 'Import site users',
     'page callback' => 'drupal_get_form',
@@ -30,7 +35,7 @@ function userimport_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
-  $items['usersearch-import/mailtest'] = array(
+  $items['userimport/mailtest'] = array(
     'title' => 'PHP Mail test',
     'page callback' => '_userimport_import_mailtest',
     'access arguments' => array('access administration pages'),
@@ -76,7 +81,7 @@ function userimport_form_validate($form, &$form_state) {
       $form_state['storage']['import_file'] = $uploaded_file;
     }
     else {
-      form_set_error('import_file', t('Failed to write the uploaded file into the site\'s files folder.'));
+      form_set_error('import_file', t('Failed to write the uploaded file into the site\'s files directory.'));
     }
   }
   else {
@@ -88,7 +93,6 @@ function userimport_form_validate($form, &$form_state) {
  * Form submit handler : handle userimport form
  */
 function userimport_form_submit($form, &$form_state) {
-//  dpm($form_state['storage']['import_file']);
   $uploaded_file = $form_state['storage']['import_file'];
   unset($form_state['storage']['import_file']);
 
@@ -103,7 +107,6 @@ function userimport_form_submit($form, &$form_state) {
   $directory = str_replace('public://', '', $uploaded_file->uri);
   $directory = str_replace('.zip', '', $directory);
   $extract_location = 'public://import/' . $directory;
-//  dpm($extract_location);
 
   // Check if extract folder exists, delete it.
   if (file_prepare_directory($extract_location)) {
@@ -112,7 +115,6 @@ function userimport_form_submit($form, &$form_state) {
 
   // Extract archive to extract location.
   $files = $archive->listContents();
-//  dpm($files);
   $archive->extract($extract_location);
 
   // Prepare data for import.
@@ -124,8 +126,6 @@ function userimport_form_submit($form, &$form_state) {
     // Check if username exists.
     if (!_userimport_import_check_user($new_account['name'])) {
       // Save account.
-//      drupal_set_message(t('No user with username %username exists, ready for import.', array(
-//        '%username' => $account->name)));
       if (user_save('',$new_account)) {
         // Notify user with new password.
         _userimport_import_mail_notify_user($new_account);
@@ -145,7 +145,7 @@ function userimport_form_submit($form, &$form_state) {
     drupal_set_message(t('Successfully imported %counter user accounts.', array('%counter' => $import_counter)));
   }
   
-  // Cleanup extracted files and archive?
+  // Cleanup extracted files and archive
   // Delete extract folder.
   if (file_prepare_directory($extract_location)) {
     if (file_unmanaged_delete_recursive($extract_location)) {
@@ -157,7 +157,7 @@ function userimport_form_submit($form, &$form_state) {
     drupal_set_message(t('Archive deleted successfully.'));
   }
 
-  // Redirect to home?
+  // Redirect to front page
   $form_state['redirect'] = '<front>';
 }
 
@@ -168,7 +168,7 @@ function _userimport_import_prepare($extract_location, $files) {
   $data = array();
 
   // Find JSON file.
-  $result = preg_grep('/\.json$/', $files);
+  $result = preg_grep(USERIMPORT_JSON_FILE_REGEX, $files);
   if (!empty($result)) {
     if (count($result) > 1) {
       drupal_set_message('More than one JSON file found.', 'error');
@@ -178,10 +178,10 @@ function _userimport_import_prepare($extract_location, $files) {
   else {
     drupal_set_message('No JSON file found.', 'error');
   }
-  $result = array_values($result);
+  $json_file = array_shift(array_values($result));
   
   // Read JSON file.
-  $json_uri = $extract_location. '/' . $result[0];
+  $json_uri = $extract_location. '/' . $json_file;
   $json_data = file_get_contents($json_uri);
   $json_data = drupal_json_decode($json_data);
 //  dpm($json_data);
@@ -197,7 +197,6 @@ function _userimport_import_prepare($extract_location, $files) {
     $new_account['status'] = 1;
     $new_account['roles'] = array(DRUPAL_AUTHENTICATED_RID => 'authenticated user');
     if (!empty($row['image_uri'])) {
-//      $image_uri = str_replace('public://', $extract_location, $row['image_uri']);
       $new_account['picture'] = _userimport_import_profile_picture($row['image_uri'], $files, $extract_location);
     }
     // Add prepared account object to data array.
@@ -215,11 +214,9 @@ function _userimport_import_profile_picture($image_uri, $files, $extract_locatio
   // Find correct file entry in $files array.
   $needle = str_replace('public://', '', $image_uri);
   $file_key = array_search($needle, $files);
-//  dpm($file_key);
   
   // Build extract_uri.
   $extract_uri = $extract_location . '/' . $files[$file_key];
-//  dpm($extract_uri);
   
   // Check if destination directory.
   // Strip streamwrapper from original image uri
@@ -240,7 +237,6 @@ function _userimport_import_profile_picture($image_uri, $files, $extract_locatio
   } else {
     $destination = 'public://';
   }
-//  dpm($destination);
   // Check if destination folder exists using reassembled streamwrapper.
   file_prepare_directory($destination, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY);
   
@@ -270,7 +266,7 @@ function _userimport_import_check_user($username) {
 }
 
 /**
- * Custom function : PHP Mail test
+ * Custom function : PHP Mail test with dummy data
  */
 function _userimport_import_mailtest() {
   // Dummy data.
@@ -293,7 +289,7 @@ function _userimport_import_mailtest() {
 }
 
 /**
- * Custom function : PHP Mail test
+ * Custom function : Send email to imported user to notify about new password.
  */
 function _userimport_import_mail_notify_user($new_account) {
   // Build mail.
@@ -310,6 +306,7 @@ function _userimport_import_mail_notify_user($new_account) {
 
 /**
  * Implements hook_theme()
+ * Theme for mail template for notifying imported user about new password.
  */
 function userimport_theme($existing, $type, $theme, $path) {
   return array(
